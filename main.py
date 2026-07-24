@@ -1,30 +1,45 @@
 import os
-import json
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 import numpy as np
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-# Token Bot Telegram của bạn
-TOKEN = os.environ.get("BOT_TOKEN", "THAY_TOKEN_CỦA_BẠN_VÀO_ĐÂY")
+# Token Bot Telegram
+TOKEN = os.environ.get("BOT_TOKEN", "8954250463:AAFvdLym7wBkHAWkBPFjtnKRRvqmrr86Bn0")
 
 # ==========================================
-# 1. CORE ENGINE: UCB1 MULTI-ARMED BANDIT
+# DUMMY WEB SERVER ĐỂ ĐẠT CHUẨN FREE RENDER
+# ==========================================
+class DummyHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot Telegram UCB1 is running!")
+
+def run_dummy_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), DummyHandler)
+    server.serve_forever()
+
+# Chạy server web giả trên luồng phụ
+threading.Thread(target=run_dummy_server, daemon=True).start()
+
+# ==========================================
+# CORE ENGINE: UCB1 MULTI-ARMED BANDIT
 # ==========================================
 class UCB1BanditEngine:
     def __init__(self, num_strategies=3):
         self.num_strategies = num_strategies
-        self.counts = np.zeros(num_strategies)   # Số lần dùng từng chiến thuật
-        self.rewards = np.zeros(num_strategies)  # Tổng điểm thưởng thu được
+        self.counts = np.zeros(num_strategies)
+        self.rewards = np.zeros(num_strategies)
         self.total_rounds = 0
 
     def select_strategy(self):
         self.total_rounds += 1
-        # Thử nghiệm các chiến thuật chưa dùng
         for i in range(self.num_strategies):
             if self.counts[i] == 0:
                 return i
-        
-        # Công thức UCB1 chọn chiến thuật "vào dây đỏ"
         ucb_values = np.zeros(self.num_strategies)
         for i in range(self.num_strategies):
             avg_reward = self.rewards[i] / self.counts[i]
@@ -36,7 +51,6 @@ class UCB1BanditEngine:
         self.counts[strat_idx] += 1
         self.rewards[strat_idx] += reward
 
-# Khởi tạo Bandit Engine toàn cục
 bandit_agent = UCB1BanditEngine(num_strategies=3)
 STRATEGY_NAMES = [
     "Ma Trận Đồ Thị Không Gian (Graph Dynamics)",
@@ -44,11 +58,7 @@ STRATEGY_NAMES = [
     "Cầu Tần Suất Lặp & Nhịp Điệu (Frequency)"
 ]
 
-# ==========================================
-# 2. THUẬT TOÁN CON (SUB-STRATEGIES)
-# ==========================================
 def strategy_graph(nums):
-    # Lực hút kề cận (+1, -1, +10, -10)
     scores = np.zeros(81)
     for n in nums:
         for adj in [n-1, n+1, n-10, n+10]:
@@ -56,7 +66,6 @@ def strategy_graph(nums):
     return np.argsort(scores)[::-1][:10]
 
 def strategy_markov(nums):
-    # Đảo số + Duy trì trạng thái
     scores = np.zeros(81)
     for n in nums:
         rev = int(str(n)[::-1]) if n >= 10 else n * 10
@@ -65,7 +74,6 @@ def strategy_markov(nums):
     return np.argsort(scores)[::-1][:10]
 
 def strategy_frequency(nums):
-    # Tổng phân bố nhịp
     scores = np.zeros(81)
     for n in nums:
         scores[n] += 1.0
@@ -73,12 +81,12 @@ def strategy_frequency(nums):
     return np.argsort(scores)[::-1][:10]
 
 # ==========================================
-# 3. TELEGRAM BOT HANDLERS
+# TELEGRAM BOT HANDLERS
 # ==========================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "<b>🤖 AGENT UCB1 MULTI-ARMED BANDIT KENO</b>\n\n"
-        "Hệ thống tự động đánh giá và chọn <b>Strategy đang vào dây đỏ nhất</b> để dự đoán.\n\n"
+        "Hệ thống tự động chọn <b>Strategy đang vào dây đỏ nhất</b> để dự đoán.\n\n"
         "Gửi 20 số Keno hiện tại để kích hoạt Agent!"
     )
     await update.message.reply_text(msg, parse_mode="HTML")
@@ -92,11 +100,9 @@ async def process_numbers(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⚠️ Vui lòng nhập đúng 20 số Keno (Phát hiện {len(nums)} số).")
         return
 
-    # 1. Agent UCB1 chọn chiến thuật
     best_strat_idx = bandit_agent.select_strategy()
     strat_name = STRATEGY_NAMES[best_strat_idx]
 
-    # 2. Thực thi chiến thuật được chọn
     if best_strat_idx == 0:
         top_10 = strategy_graph(nums)
     elif best_strat_idx == 1:
@@ -104,10 +110,8 @@ async def process_numbers(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         top_10 = strategy_frequency(nums)
 
-    # Giả lập cập nhật điểm thưởng cho Agent (Reward)
     bandit_agent.update_reward(best_strat_idx, reward=1.0)
 
-    # 3. Định dạng tin nhắn trả về
     res = f"🧠 <b>AGENT UCB1 DECISION ENGINE</b>\n"
     res += f"━━━━━━━━━━━━━━━━━━━\n"
     res += f"🎯 <b>Chiến thuật được chọn:</b>\n<code>{strat_name}</code>\n\n"
