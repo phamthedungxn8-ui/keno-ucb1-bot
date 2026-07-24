@@ -1,32 +1,14 @@
 import os
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import asyncio
 import numpy as np
+from aiohttp import web
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-# Token Bot Telegram
 TOKEN = os.environ.get("BOT_TOKEN", "8954250463:AAFvdLym7wBkHAWkBPFjtnKRRvqmrr86Bn0")
 
 # ==========================================
-# DUMMY WEB SERVER ĐỂ ĐẠT CHUẨN FREE RENDER
-# ==========================================
-class DummyHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Bot Telegram UCB1 is running!")
-
-def run_dummy_server():
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), DummyHandler)
-    server.serve_forever()
-
-# Chạy server web giả trên luồng phụ
-threading.Thread(target=run_dummy_server, daemon=True).start()
-
-# ==========================================
-# CORE ENGINE: UCB1 MULTI-ARMED BANDIT
+# UCB1 BANDIT ENGINE
 # ==========================================
 class UCB1BanditEngine:
     def __init__(self, num_strategies=3):
@@ -123,9 +105,33 @@ async def process_numbers(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(res, parse_mode="HTML")
 
+# ==========================================
+# WEB SERVER & ASYNC MAIN
+# ==========================================
+async def handle_health_check(request):
+    return web.Response(text="Bot Telegram UCB1 is Live & Healthy!")
+
+async def main():
+    # 1. Khởi tạo Web Server cho Render Health Check
+    app_web = web.Application()
+    app_web.router.add_get("/", handle_health_check)
+    runner = web.AppRunner(app_web)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
+    # 2. Khởi tạo Telegram Bot
+    tg_app = ApplicationBuilder().token(TOKEN).build()
+    tg_app.add_handler(CommandHandler("start", start))
+    tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_numbers))
+
+    async with tg_app:
+        await tg_app.start()
+        await tg_app.updater.start_polling()
+        print("🤖 Agent UCB1 Bot đang chạy mượt mà...")
+        # Giữ loop chạy mãi mãi
+        await asyncio.Event().wait()
+
 if __name__ == "__main__":
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_numbers))
-    print("🤖 Agent UCB1 Bot đang chạy...")
-    app.run_polling()
+    asyncio.run(main())
