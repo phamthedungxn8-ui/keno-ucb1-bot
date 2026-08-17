@@ -4,7 +4,7 @@ import urllib.request
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
-API_URL = "https://vietlott.vn/api/front/keno/latest"
+API_URL = "https://www.minhngoc.com.vn/json/keno.json"
 
 
 def send_telegram_message(text):
@@ -12,7 +12,6 @@ def send_telegram_message(text):
     payload = json.dumps(
         {"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"}
     ).encode("utf-8")
-
     req = urllib.request.Request(
         url,
         data=payload,
@@ -25,9 +24,9 @@ def send_telegram_message(text):
     )
     try:
         with urllib.request.urlopen(req) as response:
-            print("✅ Đã gửi tin nhắn đến Telegram thành công!")
+            pass
     except Exception as e:
-        print(f"❌ Lỗi gửi Telegram: {e}")
+        print(f"Lỗi gửi Telegram: {e}")
 
 
 def main():
@@ -39,54 +38,25 @@ def main():
             )
         },
     )
-
     try:
         with urllib.request.urlopen(req, timeout=15) as response:
-            res_body = response.read().decode("utf-8")
-            data = json.loads(res_body)
+            data = json.loads(response.read().decode("utf-8"))
 
-            # Xử lý danh sách kết quả trả về từ API Vietlott
-            results = []
-            if isinstance(data, dict):
-                results = data.get("ResultList", []) or data.get(
-                    "resultList", []
-                )
-            elif isinstance(data, list):
-                results = data
+            draw_id = f"#{data.get('ky', '')}"
+            raw_nums = data.get("ketqua", [])
 
-            if not results:
-                send_telegram_message(
-                    "⚠️ API Vietlott chưa trả về dữ liệu kỳ mới."
-                )
-                return
-
-            latest = results[0]
-            draw_id = f"#{str(latest.get('DrawId', '')).zfill(7)}"
-            raw_nums = latest.get("QueryResult", [])
-
-            if isinstance(raw_nums, str):
-                numbers = sorted(
-                    [
-                        int(n)
-                        for n in raw_nums.replace("|", ",").split(",")
-                        if n.strip()
-                    ]
-                )
-            else:
-                numbers = sorted([int(n) for n in raw_nums])
-
+            numbers = sorted([int(n) for n in raw_nums if str(n).isdigit()])
             str_nums = " ".join([f"{n:02d}" for n in numbers])
 
             msg = (
                 f"🎉 **KẾT QUẢ KENO MỚI ({draw_id})**\n\n"
                 f"📌 **20 số trúng thưởng:**\n`{str_nums}`"
             )
-
             send_telegram_message(msg)
-
+            print(f"✅ Đã gửi kết quả kỳ {draw_id}")
     except Exception as e:
         print(f"❌ Lỗi cào dữ liệu: {e}")
-        send_telegram_message(f"❌ Lỗi cào Vietlott: {e}")
+        send_telegram_message(f"❌ Lỗi cào dữ liệu: {e}")
 
 
 if __name__ == "__main__":
