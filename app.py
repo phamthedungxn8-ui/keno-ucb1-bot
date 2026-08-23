@@ -190,7 +190,9 @@ if uploaded_file is not None:
         # ----------------------------------------------------
         with tab4:
             st.subheader("📋 Bảng Ma Trận Định Lượng Chiêm Nghiệm Hoàn Chỉnh")
-            
+            # Chuyển cột pair sang dạng chuỗi
+filtered_df['pair'] = filtered_df['pair'].astype(str)
+
             # Format display
             display_df = filtered_df[[
                 'pair', 'zone', 'quant_artistry_score', 
