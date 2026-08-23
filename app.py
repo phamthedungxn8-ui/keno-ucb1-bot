@@ -11,35 +11,36 @@ import plotly.express as px
 def process_philosophical_quant(df: pd.DataFrame):
     data = df.copy()
     
-    # 🌟 Chuẩn hóa tên cột (chuyển chữ hoa thành chữ thường, xóa khoảng trắng)
+    # Chuẩn hóa tên cột
     data.columns = [str(c).strip().lower() for c in data.columns]
     
-    # 🌟 Ép kiểu và chuẩn hóa cột pair thành chuỗi ký tự
+    # Chuẩn hóa cột pair
     if 'pair' in data.columns:
         data['pair'] = data['pair'].astype(str).str.replace(r'\.0$', '', regex=True)
         data['pair'] = data['pair'].apply(lambda x: x.zfill(2) if x.isdigit() and len(x) == 1 else x)
     else:
         data['pair'] = [f"P_{i+1}" for i in range(len(data))]
 
-    # 🌟 Tự tạo/xử lý an toàn cho các cột nếu tệp CSV thiếu
+    # Tự tạo/xử lý an toàn cho các cột nếu tệp CSV thiếu
     if 'c_gap' not in data.columns: data['c_gap'] = 1.0
     if 'a_gap' not in data.columns: data['a_gap'] = 1.0
     if 'hits' not in data.columns: data['hits'] = 1.0
     
-    # Xử lý an toàn cho max_gap (nếu thiếu sẽ tự lấy c_gap * 1.5)
     if 'max_gap' not in data.columns:
         if 'm_gap' in data.columns:
             data['max_gap'] = data['m_gap']
         else:
             data['max_gap'] = (data['c_gap'] * 1.5).replace(0, 1)
 
-    # Đảm bảo không bị chia cho 0
+    # Ép kiểu số
+    for col in ['c_gap', 'a_gap', 'max_gap', 'hits']:
+        data[col] = pd.to_numeric(data[col], errors='coerce').fillna(1.0)
+
+    # Đảm bảo không chia cho 0
     data['a_gap'] = data['a_gap'].replace(0, 1.0)
     data['max_gap'] = data['max_gap'].replace(0, 1.0)
 
-    # --------------------------------------------------------------------------
-    # 1. Nhịp Thở & Trạng Thái Năng Lượng (Energy Index = c_gap / a_gap)
-    # --------------------------------------------------------------------------
+    # 1. Nhịp Thở Năng Lượng (Energy Index = c_gap / a_gap)
     data['energy_index'] = (data['c_gap'] / data['a_gap']).round(2)
 
     conditions_energy = [
@@ -56,16 +57,12 @@ def process_philosophical_quant(df: pd.DataFrame):
     ]
     data['respiration_state'] = np.select(conditions_energy, choices_energy, default="⚪ Chưa xác định")
 
-    # --------------------------------------------------------------------------
-    # 2. Trọng Lực & Lực Hấp Dẫn Cặp Số (Gravity Score)
-    # --------------------------------------------------------------------------
+    # 2. Trọng Lực Cặp Số (Gravity Score)
     base_magnetism = data['hits'] / data['a_gap']
     gap_resistance = 1 + (data['c_gap'] / data['a_gap'])
     data['gravity_score'] = (base_magnetism / gap_resistance).round(2)
 
-    # --------------------------------------------------------------------------
-    # 3. Vòng Đời & Điểm Gãy Chuyển Mùa (Lifecycle Ratio = c_gap / max_gap)
-    # --------------------------------------------------------------------------
+    # 3. Vòng Đời Chuyển Mùa (Lifecycle Ratio = c_gap / max_gap)
     data['lifecycle_ratio'] = (data['c_gap'] / data['max_gap']).round(2)
 
     conditions_season = [
@@ -148,7 +145,7 @@ if uploaded_file is not None:
 
             with col2:
                 st.write("### Trạng Thái Hô Hấp")
-                cols_disp = [c for c in ['pair', 'energy_index', 'respiration_state'] if c in filtered_df.columns]
+                cols_disp = [c for c in ['pair', 'respiration_state', 'energy_index'] if c in filtered_df.columns]
                 st.dataframe(filtered_df[cols_disp].sort_values(by='energy_index', ascending=False), hide_index=True, use_container_width=True)
 
         with tab2:
@@ -182,7 +179,9 @@ if uploaded_file is not None:
             req_cols = ['pair', 'zone', 'quant_artistry_score', 'energy_index', 'respiration_state', 'gravity_score', 'season', 'c_gap', 'a_gap']
             avail_cols = [c for c in req_cols if c in filtered_df.columns]
             display_df = filtered_df[avail_cols].sort_values(by='quant_artistry_score', ascending=False)
-            st.dataframe(display_df.style.background_gradient(subset=['quant_artistry_score'], cmap='magma'), use_container_width=True, hide_index=True)
+            
+            # Hiển thị dataframe sạch không dùng background_gradient
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     except Exception as e:
         st.error(f"❌ Lỗi xử lý dữ liệu: {str(e)}")
