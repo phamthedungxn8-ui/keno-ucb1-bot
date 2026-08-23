@@ -15,6 +15,7 @@ def process_philosophical_quant(df: pd.DataFrame) -> pd.DataFrame:
     Sử dụng vectorized operations của pandas/numpy để đạt hiệu năng tối đa.
     """
     data = df.copy()
+    data['pair'] = data['pair'].astype(str)
 
     # ----------------------------------------------------
     # Hướng 1: Nhịp Thở & Trạng Thái Năng Lượng (Energy Index)
