@@ -135,6 +135,7 @@ if uploaded_file is not None:
                     labels={"energy_index": "Tỷ lệ nén (Energy Index)", "pair": "Cặp số"}
                 )
                 fig_energy.add_hline(y=1.0, line_dash="dash", line_color="green", annotation_text="Ngưỡng thở ra chuẩn (1.0)")
+                fig_energy.update_xaxes(type='category')
                 st.plotly_chart(fig_energy, use_container_width=True)
 
             with col2:
