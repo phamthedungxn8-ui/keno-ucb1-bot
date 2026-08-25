@@ -158,12 +158,12 @@ if raw_df is not None:
             * **Z-Score $\ge$ 1.8 (Vùng Đỏ):** Cặp số đã vượt quá 95% khoảng cách nén lịch sử. **Đây là lúc xuất tiền, khung đánh 1-3 kỳ.**
             * **Z-Score < 1.0 (Vùng Xanh/Trắng):** Tuyệt đối **KHÔNG NUÔI**, dù c_gap có cao đến đâu.
             """)
-            
+            filtered_df["bubble_size"] = filtered_df["quant_artistry_score"].apply(lambda x: max(float(x), 0.1) * 10 + 5)
             fig_z = px.scatter(
                 filtered_df,
                 x="energy_index", y="z_score",
                 color="timing_status",
-                size="quant_artistry_score",
+                size="bubble_size",
                 hover_name="pair", text="pair",
                 title="Bản Đồ Điểm Điểm Bùng Nổ Tức Thời (Energy vs Z-Score)",
                 labels={"energy_index": "Tỷ lệ nén (c_gap/a_gap)", "z_score": "Căng Cứng Thống Kê (Z-Score)"}
