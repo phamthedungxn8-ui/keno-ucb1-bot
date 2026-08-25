@@ -2,9 +2,10 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 
 # ==============================================================================
-# 1. THUẬT TOÁN ĐỊNH LƯỢNG TRIẾT LÝ & ĐỘNG LỰC HỌC
+# 1. THUẬT TOÁN ĐỊNH LƯỢNG NÂNG CẤP (Z-SCORE & REAL-TIME TIMING)
 # ==============================================================================
 
 @st.cache_data(ttl=600)
@@ -21,10 +22,11 @@ def process_philosophical_quant(df: pd.DataFrame):
     else:
         data['pair'] = [f"P_{i+1}" for i in range(len(data))]
 
-    # Tự tạo/xử lý an toàn cho các cột nếu tệp CSV thiếu
+    # Xử lý an toàn các cột số
     if 'c_gap' not in data.columns: data['c_gap'] = 1.0
     if 'a_gap' not in data.columns: data['a_gap'] = 1.0
     if 'hits' not in data.columns: data['hits'] = 1.0
+    if 'std_gap' not in data.columns: data['std_gap'] = 2.0  # Độ lệch chuẩn mặc định nếu thiếu
     
     if 'max_gap' not in data.columns:
         if 'm_gap' in data.columns:
@@ -32,73 +34,62 @@ def process_philosophical_quant(df: pd.DataFrame):
         else:
             data['max_gap'] = (data['c_gap'] * 1.5).replace(0, 1)
 
-    # Ép kiểu số
-    for col in ['c_gap', 'a_gap', 'max_gap', 'hits']:
+    for col in ['c_gap', 'a_gap', 'max_gap', 'hits', 'std_gap']:
         data[col] = pd.to_numeric(data[col], errors='coerce').fillna(1.0)
 
-    # Đảm bảo không chia cho 0
     data['a_gap'] = data['a_gap'].replace(0, 1.0)
     data['max_gap'] = data['max_gap'].replace(0, 1.0)
+    data['std_gap'] = data['std_gap'].replace(0, 1.0)
 
     # 1. Nhịp Thở Năng Lượng (Energy Index = c_gap / a_gap)
     data['energy_index'] = (data['c_gap'] / data['a_gap']).round(2)
 
-    conditions_energy = [
-        (data['energy_index'] < 0.8),
-        (data['energy_index'] >= 0.8) & (data['energy_index'] < 1.0),
-        (data['energy_index'] >= 1.0) & (data['energy_index'] < 1.3),
-        (data['energy_index'] >= 1.3)
-    ]
-    choices_energy = [
-        "🔵 Hít vào (Thong thả tích lũy)",
-        "🟡 Nén lồng ngực (Chuẩn bị điểm nổ)",
-        "🔴 Thở ra (Vùng căng cứng / Ưu tiên nổ)",
-        "⚠️ Quá tải năng lượng (Quá nhịp nén)"
-    ]
-    data['respiration_state'] = np.select(conditions_energy, choices_energy, default="⚪ Chưa xác định")
+    # 2. TÍNH CHỈ SỐ Z-SCORE GẦN ĐỈNH NÉN (Độ lệch chuẩn thống kê)
+    data['z_score'] = ((data['c_gap'] - data['a_gap']) / data['std_gap']).round(2)
 
-    # 2. Trọng Lực Cặp Số (Gravity Score)
+    # 3. Trạng Thái Hô Hấp & Khung Cửa Sổ Timing
+    conditions_timing = [
+        (data['z_score'] >= 1.8),
+        (data['z_score'] >= 1.0) & (data['z_score'] < 1.8),
+        (data['energy_index'] >= 0.8) & (data['z_score'] < 1.0),
+        (data['energy_index'] < 0.8)
+    ]
+    choices_timing = [
+        "🔥 ĐIỂM NỔ CỰC ĐẠI (Đánh 1-3 Kỳ / Ưu tiên số 1)",
+        "🟡 Nén Căng Cứng (Vào Watchlist / Chờ Tín hiệu)",
+        "🔵 Đang Tích Lũy (Bỏ qua - Chưa nên nuôi)",
+        "⚪ An Toàn / Chu Kỳ Mới"
+    ]
+    data['timing_status'] = np.select(conditions_timing, choices_timing, default="⚪ Chưa xác định")
+
+    # 4. Trọng Lực Cặp Số
     base_magnetism = data['hits'] / data['a_gap']
     gap_resistance = 1 + (data['c_gap'] / data['a_gap'])
     data['gravity_score'] = (base_magnetism / gap_resistance).round(2)
 
-    # 3. Vòng Đời Chuyển Mùa (Lifecycle Ratio = c_gap / max_gap)
+    # 5. Vòng Đời Chuyển Mùa
     data['lifecycle_ratio'] = (data['c_gap'] / data['max_gap']).round(2)
 
-    conditions_season = [
-        (data['lifecycle_ratio'] < 0.3),
-        (data['lifecycle_ratio'] >= 0.3) & (data['lifecycle_ratio'] < 0.65),
-        (data['lifecycle_ratio'] >= 0.65) & (data['lifecycle_ratio'] < 0.90),
-        (data['lifecycle_ratio'] >= 0.90)
-    ]
-    choices_season = [
-        "🌸 Mùa Xuân (Sinh - Khởi đầu nhịp nén)",
-        "☀️ Mùa Hạ (Trưởng - Điểm rơi phong độ)",
-        "🍂 Mùa Thu (Thu hoạch - Dồn nén tối đa)",
-        "❄️ Mùa Đông Buốt Giá (Ranh giới chuyển mùa / Bỏ qua)"
-    ]
-    data['season'] = np.select(conditions_season, choices_season, default="⚪ Chưa rõ")
-
-    # Điểm tổng hợp Chiêm Nghiệm Quant Score
+    # Quant Score tổng hợp
     data['quant_artistry_score'] = (
-        (np.clip(data['energy_index'], 0, 2) / 2.0 * 40) +
-        (np.clip(data['gravity_score'], 0, 5) / 5.0 * 35) +
-        (np.clip(data['lifecycle_ratio'], 0, 1) * 25)
+        (np.clip(data['energy_index'], 0, 2) / 2.0 * 30) +
+        (np.clip(data['z_score'], -1, 3) / 3.0 * 40) +  # Trọng số Z-Score cao nhất (40%)
+        (np.clip(data['gravity_score'], 0, 5) / 5.0 * 30)
     ).round(1)
 
     return data
 
 
 # ==============================================================================
-# 2. GIAO DIỆN STREAMLIT
+# 2. GIAO DIỆN STREAMLIT v6.0
 # ==============================================================================
 
-st.set_page_config(page_title="Keno Quant Philosophy Engine", layout="wide")
+st.set_page_config(page_title="Keno Quant Engine v6.0 - Realtime Timing", layout="wide")
 
-st.title("🌌 KENO QUANT PHILOSOPHY ENGINE")
-st.caption("Bộ lọc Động lực học Tự nhiên & Định lượng Cặp số Keno")
+st.title("⚡ KENO QUANT TIMING ENGINE v6.0")
+st.caption("Bộ lọc Định lượng Bắt Điểm Nổ Tức thì & Quản trị Khung Cửa Sổ 3 Kỳ")
 
-uploaded_file = st.sidebar.file_uploader("Nạp tệp Excel/CSV (Chuẩn V4.0)", type=["csv", "xlsx"])
+uploaded_file = st.sidebar.file_uploader("Nạp tệp Excel/CSV", type=["csv", "xlsx"])
 
 if uploaded_file is not None:
     if uploaded_file.name.endswith(".csv"):
@@ -109,79 +100,124 @@ if uploaded_file is not None:
     try:
         df_processed = process_philosophical_quant(raw_df)
 
-        st.sidebar.header("🎯 Bộ Lọc Động Lực")
+        # ----------------------------------------------------------------------
+        # BỘ LỌC KẾT QUẢ KỲ VỪA RA (REAL-TIME TRIGGER STREAM)
+        # ----------------------------------------------------------------------
+        st.sidebar.markdown("---")
+        st.sidebar.header("🎯 Real-Time Trigger (Kỳ Vừa Ra)")
+        last_draw_input = st.sidebar.text_input(
+            "Nhập các số kỳ vừa ra (cách nhau dấu phẩy):", 
+            value="", 
+            help="Ví dụ: 04, 15, 37, 52, 69"
+        )
+        
+        triggered_pairs = []
+        if last_draw_input.strip():
+            drawn_numbers = [n.strip().zfill(2) for n in last_draw_input.split(",") if n.strip()]
+            st.sidebar.success(f"Đã ghi nhận {len(drawn_numbers)} số kỳ vừa ra.")
+            
+            # Lọc các cặp số có chứa ít nhất 1 số mồi vừa xuất hiện
+            for idx, row in df_processed.iterrows():
+                p_str = str(row['pair'])
+                if any(num in p_str for num in drawn_numbers):
+                    triggered_pairs.append(row['pair'])
+
+        st.sidebar.header("🎯 Lọc Bổ Sung")
         all_zones = df_processed['zone'].unique().tolist() if 'zone' in df_processed.columns else []
         selected_zone = st.sidebar.multiselect("Lọc Phân Vùng", options=all_zones, default=all_zones)
-        min_score = st.sidebar.slider("Ngưỡng Điểm Chiêm Nghiệm", 0.0, 100.0, 0.0)
 
         filtered_df = df_processed.copy()
         if selected_zone and 'zone' in filtered_df.columns:
             filtered_df = filtered_df[filtered_df['zone'].isin(selected_zone)]
-        filtered_df = filtered_df[filtered_df['quant_artistry_score'] >= min_score]
 
-        tab1, tab2, tab3, tab4 = st.tabs([
-            "🫁 1. Nhịp Thở Năng Lượng",
-            "🌌 2. Lực Hấp Dẫn Cặp Số",
-            "🔄 3. Vòng Đời Chuyển Mùa",
-            "📊 Bảng Tổng Hợp Chiêm Nghiệm"
+        # --- GIAO DIỆN CHÍNH ---
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "⚡ 1. Point-of-Impact (Bắt Điểm Nổ)",
+            "🔗 2. Real-Time Trigger (Số Mồi)",
+            "🛡️ 3. Quy Tắc Cửa Sổ 3 Kỳ",
+            "🧮 4. Phân Bổ Vốn Kelly",
+            "📊 Full Data Matrix"
         ])
 
+        # --- TAB 1: BẮT ĐIỂM NỔ Z-SCORE ---
         with tab1:
-            st.subheader("🫁 Phân Tích Mức Độ Nén Năng Lượng (Energy Index)")
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                top15_energy = filtered_df.sort_values(by="energy_index", ascending=False).head(15)
-                fig_energy = px.bar(
-                    top15_energy,
-                    x="pair", y="energy_index",
-                    color="energy_index",
-                    color_continuous_scale="Magma",
-                    title="Top 15 Cặp Số Có Độ Nén Năng Lượng Cao Nhất",
-                    labels={"energy_index": "Tỷ lệ nén", "pair": "Cặp số"}
-                )
-                fig_energy.add_hline(y=1.0, line_dash="dash", line_color="green", annotation_text="Ngưỡng thở ra chuẩn (1.0)")
-                fig_energy.update_xaxes(type='category')
-                st.plotly_chart(fig_energy, use_container_width=True)
-
-            with col2:
-                st.write("### Trạng Thái Hô Hấp")
-                cols_disp = [c for c in ['pair', 'respiration_state', 'energy_index'] if c in filtered_df.columns]
-                st.dataframe(filtered_df[cols_disp].sort_values(by='energy_index', ascending=False), hide_index=True, use_container_width=True)
-
-        with tab2:
-            st.subheader("🌌 Bản Đồ Trọng Lực & Lực Hút Cặp Số (Gravity Score)")
-            fig_gravity = px.scatter(
-                filtered_df,
-                x="a_gap", y="gravity_score",
-                size="hits" if 'hits' in filtered_df.columns else None,
-                color="zone" if 'zone' in filtered_df.columns else None,
-                hover_name="pair", text="pair",
-                title="Ma Trận Lực Hấp Dẫn Cặp Số",
-                labels={"a_gap": "Bước Nhảy Trung Bình (a_gap)", "gravity_score": "Điểm Trọng Lực (Gravity)"}
-            )
-            fig_gravity.update_traces(textposition='top center')
-            fig_gravity.update_xaxes(type='category')
-            st.plotly_chart(fig_gravity, use_container_width=True)
-
-        with tab3:
-            st.subheader("🔄 Phân Bố Cặp Số Theo Vòng Đời Tự Nhiên")
-            path_cols = [c for c in ['season', 'zone', 'pair'] if c in filtered_df.columns]
-            if len(path_cols) >= 2:
-                fig_season = px.sunburst(
-                    filtered_df, path=path_cols,
-                    values='quant_artistry_score', color='quant_artistry_score',
-                    color_continuous_scale='Magma', title="Phân Bố Cặp Số Theo 4 Mùa Tự Nhiên"
-                )
-                st.plotly_chart(fig_season, use_container_width=True)
-
-        with tab4:
-            st.subheader("📋 Bảng Ma Trận Định Lượng Chiêm Nghiệm")
-            req_cols = ['pair', 'zone', 'quant_artistry_score', 'energy_index', 'respiration_state', 'gravity_score', 'season', 'c_gap', 'a_gap']
-            avail_cols = [c for c in req_cols if c in filtered_df.columns]
-            display_df = filtered_df[avail_cols].sort_values(by='quant_artistry_score', ascending=False)
+            st.subheader("🎯 Ma Trận Timing Z-Score (Loại bỏ gồng nuôi dài)")
+            st.markdown("""
+            * **Z-Score $\ge$ 1.8 (Vùng Đỏ):** Cặp số đã vượt quá 95% khoảng cách nén lịch sử. **Đây là lúc xuất tiền, khung đánh 1-3 kỳ.**
+            * **Z-Score < 1.0 (Vùng Xanh/Trắng):** Tuyệt đối **KHÔNG NUÔI**, dù c_gap có cao đến đâu.
+            """)
             
-            # Hiển thị dataframe sạch không dùng background_gradient
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
+            fig_z = px.scatter(
+                filtered_df,
+                x="energy_index", y="z_score",
+                color="timing_status",
+                size="quant_artistry_score",
+                hover_name="pair", text="pair",
+                title="Bản Đồ Điểm Điểm Bùng Nổ Tức Thời (Energy vs Z-Score)",
+                labels={"energy_index": "Tỷ lệ nén (c_gap/a_gap)", "z_score": "Căng Cứng Thống Kê (Z-Score)"}
+            )
+            fig_z.add_hline(y=1.8, line_dash="dash", line_color="red", annotation_text="Ngưỡng Nổ Bắt Buộc (Z >= 1.8)")
+            fig_z.add_vline(x=1.0, line_dash="dash", line_color="orange", annotation_text="Ngưỡng Thở Ra (1.0)")
+            fig_z.update_traces(textposition='top center')
+            st.plotly_chart(fig_z, use_container_width=True)
+
+        # --- TAB 2: REALTIME TRIGGER ---
+        with tab2:
+            st.subheader("🔗 Lọc Số Mồi Từ Kỳ Vừa Quay (Trigger Catalyst)")
+            if triggered_pairs:
+                trigger_df = filtered_df[filtered_df['pair'].isin(triggered_pairs)].sort_values(by="quant_artistry_score", ascending=False)
+                st.success(f"🔥 Tìm thấy **{len(trigger_df)}** cặp số hội tụ Tín Hiệu Kích Hoạch từ kỳ vừa ra!")
+                
+                disp_trig = [c for c in ['pair', 'quant_artistry_score', 'z_score', 'timing_status', 'c_gap', 'a_gap'] if c in trigger_df.columns]
+                st.dataframe(trigger_df[disp_trig], use_container_width=True, hide_index=True)
+            else:
+                st.info("👈 Nhập kết quả các số ở kỳ vừa ra tại thanh bên trái để kích hoạt ma trận Số Mồi (Real-Time Catalyst).")
+
+        # --- TAB 3: QUY TẮC CỬA SỔ 3 KỲ ---
+        with tab3:
+            st.subheader("🛡️ Khung Kỷ Luật 3 Kỳ & Cắt Lỗ Tự Động")
+            st.warning("⚠️ **QUY TẮC BẮT BUỘC:** Chỉ giao dịch tối đa 3 kỳ cho 1 Tín hiệu. Kỳ thứ 3 không nổ ➔ CẮT LỖ NGAY!")
+
+            top3_entry = filtered_df[filtered_df['z_score'] >= 1.5].sort_values(by="quant_artistry_score", ascending=False).head(5)
+
+            if not top3_entry.empty:
+                st.write("### 🚀 Danh Sách Cặp Số Đủ Điều Kiện Vào Tiền Ngay Kỳ Tế Báo:")
+                for i, row in top3_entry.iterrows():
+                    with st.expander(f"📌 Cặp số: **{row['pair']}** | Điểm Quant: **{row['quant_artistry_score']}** | Z-Score: **{row['z_score']}**"):
+                        col_a, col_b, col_c = st.columns(3)
+                        col_a.metric("Kỳ 1 (Xuất Vốn Ban Đầu)", "30% Ngân Sách", "Vào Ngay")
+                        col_b.metric("Kỳ 2 (Nén Tiếp Nút)", "40% Ngân Sách", "Nổ ➔ Dừng")
+                        col_c.metric("Kỳ 3 (Khung Cuối)", "30% Ngân Sách", "Không Nổ ➔ CUT LOSS")
+            else:
+                st.info("Hiện chưa có cặp số nào chạm ngưỡng Z-Score căng cứng (>= 1.5). Hãy kiên nhẫn đứng ngoài quan sát!")
+
+        # --- TAB 4: QUẢN TRỊ VỐN KELLY ---
+        with tab4:
+            st.subheader("🧮 Phân Bổ Vốn Tối Ưu Tốc Độ")
+            total_cap = st.number_input("Tổng vốn dành cho khung 3 kỳ (VNĐ):", min_value=100000, value=1000000, step=100000)
+            
+            top_k = filtered_df.sort_values(by="quant_artistry_score", ascending=False).head(3).copy()
+            if not top_k.empty:
+                top_k['alloc_percent'] = (top_k['quant_artistry_score'] / top_k['quant_artistry_score'].sum()).round(2)
+                top_k['budget_vnd'] = (top_k['alloc_percent'] * total_cap).round(-3)
+                
+                st.dataframe(
+                    top_k[['pair', 'quant_artistry_score', 'z_score', 'alloc_percent', 'budget_vnd']].rename(columns={
+                        'pair': 'Cặp số',
+                        'quant_artistry_score': 'Điểm Quant',
+                        'z_score': 'Z-Score',
+                        'alloc_percent': 'Tỷ lệ phân bổ',
+                        'budget_vnd': 'Số tiền cược (VNĐ)'
+                    }),
+                    use_container_width=True, hide_index=True
+                )
+
+        # --- TAB 5: BẢNG DỮ LIỆU TỔNG HỢP ---
+        with tab5:
+            st.subheader("📋 Ma Trận Định Lượng Toàn Phần")
+            show_cols = ['pair', 'quant_artistry_score', 'z_score', 'timing_status', 'energy_index', 'gravity_score', 'c_gap', 'a_gap']
+            avail = [c for c in show_cols if c in filtered_df.columns]
+            st.dataframe(filtered_df[avail].sort_values(by="quant_artistry_score", ascending=False), use_container_width=True, hide_index=True)
 
     except Exception as e:
         st.error(f"❌ Lỗi xử lý dữ liệu: {str(e)}")
