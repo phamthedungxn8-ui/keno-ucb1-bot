@@ -90,13 +90,25 @@ st.title("⚡ KENO QUANT TIMING ENGINE v6.0")
 st.caption("Bộ lọc Định lượng Bắt Điểm Nổ Tức thì & Quản trị Khung Cửa Sổ 3 Kỳ")
 
 uploaded_file = st.sidebar.file_uploader("Nạp tệp Excel/CSV", type=["csv", "xlsx"])
+st.sidebar.header("📥 Nạp Dữ Liệu")
+input_method = st.sidebar.radio("Chọn cách nhập dữ liệu:", ["Dán văn bản trực tiếp", "Tải file (CSV/XLSX)"])
 
-if uploaded_file is not None:
-    if uploaded_file.name.endswith(".csv"):
-        raw_df = pd.read_csv(uploaded_file)
-    else:
-        raw_df = pd.read_excel(uploaded_file)
+raw_df = None
 
+if input_method == "Dán văn bản trực tiếp":
+    text_data = st.sidebar.text_area("Dán nội dung từ Ghi chú vào đây:", height=200)
+    if text_data.strip():
+        import io
+        raw_df = pd.read_csv(io.StringIO(text_data))
+else:
+    uploaded_file = st.sidebar.file_uploader("Nạp tệp Excel/CSV", type=["csv", "xlsx"])
+    if uploaded_file is not None:
+        if uploaded_file.name.endswith(".csv"):
+            raw_df = pd.read_csv(uploaded_file)
+        else:
+            raw_df = pd.read_excel(uploaded_file)
+
+if raw_df is not None:
     try:
         df_processed = process_philosophical_quant(raw_df)
 
