@@ -1,351 +1,241 @@
 import io
+import itertools
+import math
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-# -----------------------------------------------------------------------------
-# CONFIG & PAGE TITLE
-# -----------------------------------------------------------------------------
+# =============================================================================
+# 1. CẤU HÌNH TRANG & GIAO DIỆN
+# =============================================================================
 st.set_page_config(
-    page_title="KENO QUANT TIMING ENGINE v6.2",
-    page_icon="⚡",
-    layout="wide",
-    initial_sidebar_state="expanded",
+    page_title="AlphaKeno Quantum Engine", page_icon="🪐", layout="wide"
 )
 
-st.title("⚡ KENO QUANT TIMING ENGINE v6.2")
+st.title("🪐 ALPHAKENO QUANTUM ENGINE v2.0")
 st.caption(
-    "Bộ Lọc Định Lượng Bất Điểm Nổ Tức Thì & Quản Trị Khung Cửa Số 3 Kỳ (Live Engine)"
+    "Hệ thống Tự học & Ghép cụm Bậc cao Keno dựa trên Ma trận Vướng víu Không gian - Thời gian"
 )
 
 
-# -----------------------------------------------------------------------------
-# CORE QUANT LOGIC (CACHED & AUTO-HANDLING MISSING DATA)
-# -----------------------------------------------------------------------------
-@st.cache_data(show_spinner=False)
-def process_philosophical_quant(df_raw: pd.DataFrame) -> pd.DataFrame:
-    df = df_raw.copy()
+# =============================================================================
+# 2. CORE ENGINE (MÔ HÌNH TOÁN VƯỚNG VÍU & GHÉP CỤM FREQUENCY SEED)
+# =============================================================================
+class AlphaKenoStreamlitEngine:
 
-    # 1. Làm sạch tên cột
-    df.columns = df.columns.str.strip().str.lower()
+    def __init__(self, total_numbers=80):
+        self.N = total_numbers
+        # Ma trận Vướng víu Lượng tử (81 x 81)
+        self.entanglement_matrix = np.ones((self.N + 1, self.N + 1)) * 0.5
 
-    # 2. Chuẩn hóa cột pair (thêm số 0 vào trước các số có 1 chữ số: 4 -> 04)
-    if "pair" in df.columns:
+    def train_on_history(self, history_draws: list, iterations=3):
+        """Huấn luyện tự động trên chuỗi lịch sử kỳ quay."""
+        alpha = 0.08  # Tốc độ học
+        for _ in range(iterations):
+            for t in range(len(history_draws) - 1):
+                prev_draw = history_draws[t]
+                curr_draw = history_draws[t + 1]
 
-        def format_pair(val):
-            val_str = str(val).strip()
-            # Tách các số bởi dấu phẩy hoặc gạch ngang
-            parts = [
-                p.strip().zfill(2)
-                for p in val_str.replace("-", ",").split(",")
-                if p.strip()
+                for x in prev_draw:
+                    for y in curr_draw:
+                        self.entanglement_matrix[x][y] = (
+                            1 - alpha
+                        ) * self.entanglement_matrix[x][y] + alpha * 1.0
+
+            # Suy giảm ma trận tự nhiên (Decay)
+            self.entanglement_matrix *= 0.99
+
+    def generate_optimal_tickets(
+        self,
+        history_draws: list,
+        seed_clusters: list = None,
+        target_size=8,
+        top_k_tickets=5,
+    ):
+        """Ghép cụm bậc cao kết hợp Hạt giống Tần suất (Frequency Seeds)"""
+        # 1. Tính tổng năng lượng vướng víu tích tụ cho từng nút (1-80)
+        node_energies = np.sum(self.entanglement_matrix, axis=0)[1:]
+        top_nodes = np.argsort(node_energies)[-20:] + 1  # Top 20 nút mạnh nhất
+
+        # 2. Thu thập các cụm hạt nhân (Micro-Clusters 3 số)
+        candidate_micro_clusters = []
+
+        # Nếu người dùng nạp thêm Cụm Tần suất hạt giống
+        if seed_clusters:
+            for seed in seed_clusters:
+                if len(seed) == 3:
+                    candidate_micro_clusters.append(tuple(sorted(seed)))
+
+        # Bổ sung các cụm 3 số từ Top Nút Vướng víu
+        generated_combos = list(itertools.combinations(top_nodes, 3))
+        candidate_micro_clusters.extend(generated_combos)
+
+        # 3. Chấm điểm năng lượng cho từng cụm micro
+        scored_clusters = []
+        for cluster in set(candidate_micro_clusters):
+            score = 0
+            for i, j in itertools.combinations(cluster, 2):
+                score += (
+                    self.entanglement_matrix[i][j]
+                    + self.entanglement_matrix[j][i]
+                )
+            scored_clusters.append((cluster, score))
+
+        scored_clusters.sort(key=lambda x: x[1], reverse=True)
+        best_micro = [c[0] for c in scored_clusters[:10]]
+
+        # 4. Ghép các cụm Micro thành BỘ SỐ BẬC CAO (VD: Keno 8 số)
+        high_order_tickets = set()
+        for c1, c2 in itertools.combinations(best_micro, 2):
+            combined = tuple(sorted(list(set(c1 + c2))))
+            if len(combined) == target_size:
+                high_order_tickets.add(combined)
+            elif len(combined) < target_size:
+                # Bù số có vướng víu mạnh nhất vào cho đủ target_size
+                for node in top_nodes:
+                    if node not in combined:
+                        new_t = tuple(sorted(list(combined + (node,))))
+                        if len(new_t) == target_size:
+                            high_order_tickets.add(new_t)
+                            break
+
+        # Chấm điểm toàn bộ vé bậc cao đã tạo
+        final_scored_tickets = []
+        for ticket in high_order_tickets:
+            t_score = 0
+            for i, j in itertools.combinations(ticket, 2):
+                t_score += self.entanglement_matrix[i][j]
+            final_scored_tickets.append((ticket, round(t_score, 2)))
+
+        final_scored_tickets.sort(key=lambda x: x[1], reverse=True)
+        return top_nodes, final_scored_tickets[:top_k_tickets]
+
+
+# =============================================================================
+# 3. GIAO DIỆN NẠP DỮ LIỆU STREAMLIT (DATA LOADING PIPELINE)
+# =============================================================================
+st.sidebar.header("📥 Nạp Dữ Liệu & Cấu Hình")
+
+# Tab chọn nguồn nạp dữ liệu
+data_source = st.sidebar.radio(
+    "Nguồn dữ liệu lịch sử:",
+    ["Tải file CSV/Excel", "Dùng Dữ Liệu Giả Lập Mẫu"],
+)
+
+history_draws = []
+seed_clusters = []
+
+if data_source == "Tải file CSV/Excel":
+    uploaded_file = st.sidebar.file_uploader(
+        "Tải file Kết quả Keno (Mỗi dòng là 1 kỳ quay gồm 20 số, phân cách bởi dấu phẩy):",
+        type=["csv", "xlsx"],
+    )
+    if uploaded_file is not None:
+        if uploaded_file.name.endswith(".csv"):
+            df = pd.read_csv(uploaded_file, header=None)
+        else:
+            df = pd.read_excel(uploaded_file, header=None)
+
+        # Chuyển đổi dataframe thành danh sách lịch sử
+        for _, row in df.iterrows():
+            numbers = [
+                int(x)
+                for x in row.dropna().values
+                if isinstance(x, (int, float, str)) and str(x).isdigit()
             ]
-            return ",".join(parts)
+            if len(numbers) >= 20:
+                history_draws.append(numbers[:20])
 
-        df["pair"] = df["pair"].apply(format_pair)
+        st.sidebar.success(f"✅ Đã nạp thành công {len(history_draws)} kỳ quay!")
 
-    # 3. Chuẩn hóa cột zone (xóa khoảng trắng thừa)
-    if "zone" in df.columns:
-        df["zone"] = df["zone"].astype(str).str.strip()
-    else:
-        df["zone"] = "Bậc 2"
+elif data_source == "Dùng Dữ Liệu Giả Lập Mẫu":
+    np.random.seed(42)
+    # Giả lập 60 kỳ quay Keno (mỗi kỳ 20 số)
+    history_draws = [
+        list(np.random.choice(range(1, 81), size=20, replace=False))
+        for _ in range(60)
+    ]
+    st.sidebar.info(f"💡 Đang dùng 60 kỳ quay giả lập hệ thống.")
 
-    # 4. Chuyển đổi và xử lý các cột số (Bù ô trống NaN)
-    numeric_cols = ["hits", "a_gap", "c_gap", "max_gap", "std_gap"]
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    # Xử lý lấp đầy dữ liệu nếu thiếu/bỏ trống trên Google Sheets
-    if "c_gap" in df.columns:
-        df["c_gap"] = df["c_gap"].fillna(0)
-    if "max_gap" in df.columns:
-        df["max_gap"] = df["max_gap"].fillna(15)
-    if "std_gap" in df.columns:
-        df["std_gap"] = df["std_gap"].fillna(2.0)
-
-    df = df.fillna(0)
-
-    # 5. Các công thức Định lượng
-    # Energy Index (Tỷ lệ nén năng lượng)
-    df["energy_index"] = np.where(
-        df["a_gap"] > 0, np.round(df["c_gap"] / df["a_gap"], 2), 0
-    )
-
-    # Z-Score Timing
-    df["z_score"] = np.where(
-        df["std_gap"] > 0,
-        np.round((df["c_gap"] - df["a_gap"]) / df["std_gap"], 2),
-        0,
-    )
-
-    # Quant Artistry Score
-    df["quant_artistry_score"] = np.round(
-        (df["energy_index"] * 10)
-        + (df["z_score"] * 5)
-        + (df["hits"] * 0.5)
-        - (df["c_gap"] * 0.2),
-        1,
-    )
-
-    # Status Categorization
-    def assign_status(row):
-        z = row["z_score"]
-        if z >= 1.8:
-            return "🔴 Bùng Nổ Tức Thời (Khung 1-3 Kỳ)"
-        elif z >= 1.0:
-            return "🟡 Vùng Cảnh Báo (Sắp Bùng Nổ)"
-        elif z >= 0:
-            return "⚪ An Toàn / Chu Kỳ Mới"
-        else:
-            return "🔵 Đang Tích Lũy (Bỏ qua - Chưa nên nuôi)"
-
-    df["timing_status"] = df.apply(assign_status, axis=1)
-
-    # Kích thước bong bóng biểu đồ
-    df["bubble_size"] = df["quant_artistry_score"].apply(
-        lambda x: max(float(x), 0.1) * 2 + 5
-    )
-
-    return df.sort_values(by="quant_artistry_score", ascending=False)
-
-
-# -----------------------------------------------------------------------------
-# SIDEBAR - LIVE DATA INPUT (GOOGLE SHEETS)
-# -----------------------------------------------------------------------------
-st.sidebar.header("🔄 Dữ Liệu Live từ Google Sheets")
-
-sheet_url = st.sidebar.text_input(
-    "Nhập link Google Sheets:",
-    value="",
-    placeholder="https://docs.google.com/spreadsheets/d/...",
-    help="Đảm bảo Google Sheets đã bật chế độ 'Ai có link cũng xem được'",
+# NẠP DỮ LIỆU CỤM HẠT GIỐNG TẦN SUẤT (FREQUENCY SEEDS)
+st.sidebar.markdown("---")
+st.sidebar.subheader("🧬 Nạp Cụm Hạt Giống Tần Suất")
+seed_input = st.sidebar.text_area(
+    "Nhập các cụm 3 số xuất hiện nhiều nhất (Mỗi cụm 1 dòng, cách nhau bằng dấu phẩy):",
+    value="05, 12, 38\n18, 29, 45\n02, 33, 71",
 )
 
-if st.sidebar.button("⚡ Cập nhật dữ liệu mới"):
-    st.cache_data.clear()
-    st.rerun()
+if seed_input.strip():
+    lines = seed_input.strip().split("\n")
+    for line in lines:
+        parts = [int(p.strip()) for p in line.split(",") if p.strip().isdigit()]
+        if len(parts) == 3:
+            seed_clusters.append(parts)
 
-raw_df = None
+# CẤU HÌNH THAM SỐ KHAI THÁC
+st.sidebar.markdown("---")
+target_k = st.sidebar.slider("Loại vé Keno muốn đánh (Bậc số):", 4, 10, 8)
+train_iters = st.sidebar.slider("Số vòng tự học Vướng Víu:", 1, 10, 3)
 
+# =============================================================================
+# 4. LUỒNG THỰC THI & HIỂN THỊ KẾT QUẢ
+# =============================================================================
+if st.button("🚀 KÍCH HOẠT HỆ THỐNG TỰ HỌC & GHÉP CỤM BẬC CAO", type="primary"):
+    if not history_draws:
+        st.error("❌ Chưa có dữ liệu lịch sử! Vui lòng tải file hoặc chọn dữ liệu giả lập.")
+    else:
+        with st.spinner("🌀 Đang xử lý Ma trận Vướng víu và Phân rã Cụm Hạt nhân..."):
+            engine = AlphaKenoStreamlitEngine()
+            engine.train_on_history(history_draws, iterations=train_iters)
 
-# Tự động tải dữ liệu mới từ Google Sheets mỗi 30 giây
-@st.cache_data(ttl=30, show_spinner=False)
-def load_data_from_gsheets(url):
-    try:
-        if "/edit" in url:
-            csv_url = url.split("/edit")[0] + "/export?format=csv"
-            if "gid=" in url:
-                gid = url.split("gid=")[1].split("&")[0]
-                csv_url += f"&gid={gid}"
-        else:
-            csv_url = url
-        return pd.read_csv(csv_url)
-    except Exception as e:
-        st.error(f"Chưa thể tải dữ liệu từ Google Sheets: {e}")
-        return None
-
-
-if sheet_url and "docs.google.com" in sheet_url:
-    raw_df = load_data_from_gsheets(sheet_url)
-else:
-    st.sidebar.info(
-        "💡 Dán đường link Google Sheets ở trên để bắt đầu phân tích Live."
-    )
-
-
-# -----------------------------------------------------------------------------
-# MAIN APP FLOW
-# -----------------------------------------------------------------------------
-if raw_df is not None:
-    df_processed = process_philosophical_quant(raw_df)
-
-    # REAL-TIME TRIGGER INPUT
-    st.sidebar.markdown("---")
-    st.sidebar.header("🎯 Real-Time Trigger (Kỳ Vừa Ra)")
-    last_draw_input = st.sidebar.text_input(
-        "Nhập các số kỳ vừa ra (cách nhau dấu phẩy):",
-        value="",
-        placeholder="VD: 04, 15, 37, 52...",
-    )
-
-    # BỘ LỌC PHÂN VÙNG BẬC
-    st.sidebar.markdown("---")
-    st.sidebar.header("🎯 Lọc Bổ Sung")
-    available_zones = sorted(df_processed["zone"].unique().tolist())
-    selected_zones = st.sidebar.multiselect(
-        "Lọc Phân Vùng:", options=available_zones, default=available_zones
-    )
-
-    # Filter dataframe theo zone chọn
-    filtered_df = df_processed[df_processed["zone"].isin(selected_zones)]
-
-    # Real-time trigger check
-    triggered_pairs = []
-    if last_draw_input.strip():
-        drawn_numbers = [
-            n.strip().zfill(2)
-            for n in last_draw_input.replace(";", ",").split(",")
-            if n.strip()
-        ]
-        st.sidebar.success(f"Đã ghi nhận {len(drawn_numbers)} số kỳ vừa ra.")
-
-        for idx, row in filtered_df.iterrows():
-            p_str = str(row["pair"])
-            p_nums = [x.strip().zfill(2) for x in p_str.split(",") if x.strip()]
-            if any(num in drawn_numbers for num in p_nums):
-                triggered_pairs.append(row["pair"])
-
-    # DASHBOARD TABS
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(
-        [
-            "📍 Point-of-Impact",
-            "🚀 Real-Time Trigger",
-            "🛡️ Quy Tắc 3 Kỳ",
-            "📊 Phân Bổ Vốn Kelly",
-            "📋 Full Data Matrix",
-        ]
-    )
-
-    with tab1:
-        st.subheader("🎯 Ma Trận Timing Z-Score & Điểm Bùng Nổ")
-        if not filtered_df.empty:
-            fig_z = px.scatter(
-                filtered_df,
-                x="energy_index",
-                y="z_score",
-                color="timing_status",
-                size="bubble_size",
-                hover_name="pair",
-                text="pair",
-                title="Bản Đồ Điểm Bùng Nổ Tức Thời",
-                labels={
-                    "energy_index": "Tỷ lệ nén (c_gap/a_gap)",
-                    "z_score": "Z-Score Timing",
-                },
-            )
-            fig_z.add_hline(
-                y=1.8,
-                line_dash="dash",
-                line_color="red",
-                annotation_text="Vùng Bùng Nổ (1.8)",
-            )
-            fig_z.add_vline(
-                x=1.0,
-                line_dash="dash",
-                line_color="orange",
-                annotation_text="Nén Cao (1.0)",
-            )
-            fig_z.update_traces(textposition="top center")
-            st.plotly_chart(fig_z, use_container_width=True)
-        else:
-            st.warning("Không có dữ liệu phù hợp với bộ lọc đã chọn!")
-
-    with tab2:
-        st.subheader("🔗 Lọc Số Mồi Từ Kỳ Vừa Quay")
-        if triggered_pairs:
-            st.success(
-                f"🔥 Tìm thấy {len(triggered_pairs)} cặp số hội tụ Tín Hiệu Kích Hoạt từ kỳ vừa ra!"
-            )
-            trig_df = filtered_df[filtered_df["pair"].isin(triggered_pairs)]
-            st.dataframe(
-                trig_df[
-                    [
-                        "pair",
-                        "quant_artistry_score",
-                        "z_score",
-                        "timing_status",
-                        "c_gap",
-                        "a_gap",
-                        "zone",
-                    ]
-                ],
-                use_container_width=True,
-            )
-        else:
-            st.info(
-                "Nhập danh sách các số vừa về ở thanh menu bên trái để kích hoạt bộ lọc."
+            top_nodes, optimal_tickets = engine.generate_optimal_tickets(
+                history_draws,
+                seed_clusters=seed_clusters,
+                target_size=target_k,
+                top_k_tickets=5,
             )
 
-    with tab3:
-        st.subheader("🛡️ Khung Kỷ Luật 3 Kỳ & Cắt Lỗ Tự Động")
-        st.warning(
-            "⚠️ QUY TẮC BẮT BUỘC: Chỉ giao dịch tối đa 3 kỳ cho 1 tín hiệu. Kỳ thứ 3 không nổ ➔ CẮT LỖ NGAY!"
-        )
-        high_z_df = filtered_df[filtered_df["z_score"] >= 1.0]
-        if not high_z_df.empty:
-            st.dataframe(
-                high_z_df[
-                    [
-                        "pair",
-                        "z_score",
-                        "timing_status",
-                        "c_gap",
-                        "max_gap",
-                        "zone",
-                    ]
-                ],
-                use_container_width=True,
-            )
-        else:
-            st.info(
-                "Hiện chưa có cặp số nào chạm ngưỡng Z-Score căng cứng (>= 1.0)."
-            )
-
-    with tab4:
-        st.subheader("🎲 Phân Bổ Vốn Tối Ưu Tốc Độ (Kelly Standard)")
-        capital = st.number_input(
-            "Tổng vốn dành cho khung 3 kỳ (VNĐ):",
-            value=1000000,
-            step=100000,
-        )
-        top_pairs = filtered_df.head(5).copy()
-        if not top_pairs.empty:
-            total_score = (
-                top_pairs["quant_artistry_score"].clip(lower=0.1).sum()
-            )
-            top_pairs["kelly_ratio"] = np.round(
-                top_pairs["quant_artistry_score"].clip(lower=0.1) / total_score,
-                2,
-            )
-            top_pairs["allocated_cash"] = (
-                top_pairs["kelly_ratio"] * capital
-            ).astype(int)
-            st.dataframe(
-                top_pairs[
-                    [
-                        "pair",
-                        "quant_artistry_score",
-                        "z_score",
-                        "kelly_ratio",
-                        "allocated_cash",
-                        "zone",
-                    ]
-                ],
-                use_container_width=True,
-            )
-
-    with tab5:
-        st.subheader("📋 Ma Trận Định Lượng Toàn Phần")
-        st.dataframe(
-            filtered_df[
-                [
-                    "pair",
-                    "zone",
-                    "quant_artistry_score",
-                    "timing_status",
-                    "z_score",
-                    "c_gap",
-                    "a_gap",
-                    "max_gap",
-                    "hits",
-                ]
-            ],
-            use_container_width=True,
+        # TAB HIỂN THỊ KẾT QUẢ
+        tab1, tab2, tab3 = st.tabs(
+            [
+                "🎯 Vé Bậc Cao Tối Ưu",
+                "🌌 Top Hạt Nhân Vướng Víu",
+                "📊 Ma Trận Năng Lượng Không Gian",
+            ]
         )
 
-else:
-    st.info(
-        "👈 Vui lòng nhập đường link Google Sheets vào thanh menu bên trái để tải dữ liệu."
-                        )
+        with tab1:
+            st.subheader(
+                f"🔥 Top Vé Keno Bậc {target_k} Được Khuyên Nghị Cho Kỳ Tiếp Theo"
+            )
+            for idx, (ticket, score) in enumerate(optimal_tickets, 1):
+                st.markdown(
+                    f"""
+                <div style="background-color: #1e222d; padding: 15px; border-radius: 10px; margin-bottom: 10px; border-left: 5px solid #00ff88;">
+                    <h4 style="margin:0; color: #00ff88;">Bộ Vé #{idx} (Điểm Xung Vướng Víu: {score})</h4>
+                    <h2 style="margin:5px 0; color: #ffffff; letter-spacing: 2px;">{list(ticket)}</h2>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+
+        with tab2:
+            st.subheader("📌 Top 20 Hạt Nhân Số Tích Tụ Năng Lượng Mạnh Nhất")
+            cols = st.columns(5)
+            for idx, node in enumerate(reversed(top_nodes)):
+                cols[idx % 5].metric(
+                    label=f"Hạt nhân #{idx+1}", value=f"Số [{node:02d}]"
+                )
+
+        with tab3:
+            st.subheader("🌐 Heatmap Ma Trận Vướng Víu Lượng Tử (80 x 80)")
+            fig = px.imshow(
+                engine.entanglement_matrix[1:, 1:],
+                labels=dict(x="Số Kỳ Sau (T+1)", y="Số Kỳ Trước (T)", color="Cường Độ"),
+                x=[f"{i:02d}" for i in range(1, 81)],
+                y=[f"{i:02d}" for i in range(1, 81)],
+                color_continuous_scale="Viridis",
+            )
+            fig.update_layout(height=650)
+            st.plotly_chart(fig, use_container_width=True)
