@@ -7,72 +7,84 @@ import requests
 import streamlit as st
 
 # =============================================================================
-# 1. CẤU HÌNH GIAO DIỆN STREAMLIT
+# 1. CẤU HÌNH GIAO DIỆN COMPACT
 # =============================================================================
 st.set_page_config(
-    page_title="AlphaVietlott Unified Engine",
-    page_icon="🔮",
+    page_title="AlphaVietlott Direct Engine",
+    page_icon="🎯",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-st.title("🔮 ALPHAVIETLOTT UNIFIED QUANTUM ENGINE v3.0")
+st.title("🎯 ALPHAVIETLOTT DIRECT QUANTUM ENGINE v4.0")
 st.caption(
-    "Nền tảng Tối ưu hóa Vietlott: Hỗn Độn (Chaos Space) + Di Truyền Đột Biến +"
-    " Lý Thuyết Trận Thế + Tâm Thức Trực Giác"
+    "Thuật toán tối ưu trực tiếp: Markov Vector + Entropy Dynamic Filter | Tập"
+    " trung 100% Kết quả"
 )
 
 
 # =============================================================================
-# 2. BỘ THU THẬP & LỌC DỮ LIỆU TỰ ĐỘNG (REALTIME CÀO 0 ĐỒNG)
+# 2. BỘ CÀO DỮ LIỆU ĐA NGUỒN (MULTI-FALLBACK CRAWLER - ZERO DUMMY DATA)
 # =============================================================================
-def fetch_live_keno(limit=100):
-    """Tự động cào dữ liệu Keno mới nhất từ web công khai."""
-    url = "https://minhchinh.com/live/keno.php"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-    try:
-        res = requests.get(url, headers=headers, timeout=8)
-        if res.status_code == 200:
-            lines = res.text.split("\n")
-            history = []
-            for line in lines:
-                nums = [int(s) for s in re.findall(r"\b\d+\b", line)]
-                valid = [n for n in nums if 1 <= n <= 80]
-                seen = set()
-                uniq = [x for x in valid if not (x in seen or seen.add(x))]
-                if len(uniq) >= 20:
-                    history.append(uniq[:20])
-            return history[:limit]
-    except Exception:
-        pass
+@st.cache_data(ttl=300)
+def fetch_keno_realtime(limit=100):
+    urls = [
+        "https://minhchinh.com/live/keno.php",
+        "https://xoso.com.vn/live-keno.html",
+    ]
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        )
+    }
+    for url in urls:
+        try:
+            res = requests.get(url, headers=headers, timeout=6)
+            if res.status_code == 200:
+                draws = []
+                for line in res.text.split("\n"):
+                    nums = [int(s) for s in re.findall(r"\b\d+\b", line)]
+                    valid = [n for n in nums if 1 <= n <= 80]
+                    seen = set()
+                    uniq = [x for x in valid if not (x in seen or seen.add(x))]
+                    if len(uniq) >= 20:
+                        draws.append(uniq[:20])
+                if len(draws) >= 10:
+                    return draws[:limit]
+        except Exception:
+            continue
     return None
 
 
-def fetch_live_max3d(limit=60):
-    """Tự động cào dữ liệu Max 3D mới nhất."""
-    url = "https://minhchinh.com/ket-qua-vietlott-max3d.html"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-    try:
-        res = requests.get(url, headers=headers, timeout=8)
-        if res.status_code == 200:
-            tokens = re.findall(r"\b\d{3}\b", res.text)
-            if tokens:
-                return tokens[:limit]
-    except Exception:
-        pass
+@st.cache_data(ttl=600)
+def fetch_max3d_realtime(limit=60):
+    urls = [
+        "https://xoso.com.vn/ket-qua-vietlott-max-3d.html",
+        "https://minhchinh.com/ket-qua-vietlott-max3d.html",
+    ]
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        )
+    }
+    for url in urls:
+        try:
+            res = requests.get(url, headers=headers, timeout=6)
+            if res.status_code == 200:
+                tokens = re.findall(r"\b\d{3}\b", res.text)
+                if len(tokens) >= 20:
+                    return tokens[:limit]
+        except Exception:
+            continue
     return None
 
 
-def parse_file_upload(uploaded_file):
-    """Xử lý file CSV/Excel người dùng nạp thủ công."""
+def parse_file_upload(file):
     try:
-        if uploaded_file.name.endswith(".csv") or uploaded_file.name.endswith(
-            ".txt"
-        ):
-            df = pd.read_csv(uploaded_file, header=None, on_bad_lines="skip")
+        if file.name.endswith(".csv") or file.name.endswith(".txt"):
+            df = pd.read_csv(file, header=None, on_bad_lines="skip")
         else:
-            df = pd.read_excel(uploaded_file, header=None)
-
+            df = pd.read_excel(file, header=None)
         draws = []
         for _, row in df.iterrows():
             row_str = " ".join([str(v) for v in row.values if pd.notna(v)])
@@ -88,317 +100,144 @@ def parse_file_upload(uploaded_file):
 
 
 # =============================================================================
-# 3. ENGINE TỐI ƯU HÓA KENO (CHAOS-GENETIC & GAME THEORY)
+# 3. ENGINE TỐI ƯU HÓA VECTOR HÓA (PURE MATHEMATICS)
 # =============================================================================
-class KenoAdvancedEngine:
+def optimize_keno(history, target_k=6, top_n=5):
+    random.seed()
+    np.random.seed()
 
-    def __init__(self, total_numbers=80):
-        self.N = total_numbers
-        self.weights = np.ones(self.N + 1)
+    draw_count = len(history)
+    freq = np.zeros(81)
+    last_seen = np.full(81, draw_count)
 
-    def process_chaos_and_game_theory(
-        self, history_draws, intuition_numbers=None
-    ):
-        draw_count = len(history_draws)
-        if draw_count == 0:
-            return
+    for t, draw in enumerate(history):
+        for num in draw:
+            if 1 <= num <= 80:
+                freq[num] += 1
+                if last_seen[num] == draw_count:
+                    last_seen[num] = t
 
-        last_seen = {i: draw_count for i in range(1, 81)}
-        freq = np.zeros(81)
+    weights = (freq[1:] / draw_count) * 0.65 + (
+        np.log(last_seen[1:] + 1) / np.log(draw_count + 1)
+    ) * 0.35
+    probs = weights / np.sum(weights)
 
-        for t, draw in enumerate(history_draws):
-            for num in draw:
-                if 1 <= num <= 80:
-                    freq[num] += 1
-                    last_seen[num] = draw_count - t
-
-        for i in range(1, 81):
-            compression = np.log(last_seen[i] + 1)
-            self.weights[i] = (freq[i] / draw_count) * 0.6 + (
-                compression * 0.4
+    candidates = []
+    for _ in range(300):
+        t = sorted(
+            list(
+                np.random.choice(
+                    range(1, 81), size=target_k, replace=False, p=probs
+                )
             )
+        )
+        score = sum(weights[n - 1] for n in t) * (1.0 + np.std(t) * 0.03)
+        candidates.append((t, round(score, 2)))
 
-        # Trận thế Đảo ngược Đám đông
-        crowd_favorite = [1, 2, 3, 6, 8, 9, 10, 11, 22, 33, 66, 68, 79, 80]
-        for num in range(1, 81):
-            if num not in crowd_favorite:
-                self.weights[num] *= 1.25
+    candidates.sort(key=lambda x: x[1], reverse=True)
 
-        # Bơm hạt giống Tâm thức
-        if intuition_numbers:
-            for num in intuition_numbers:
-                if 1 <= num <= 80:
-                    self.weights[num] *= 1.6
-
-    def run_genetic_evolution(
-        self, target_size=6, population_size=100, generations=35, mutation=0.2
-    ):
-        # Giải phóng seed để mỗi lần bấm nút là 1 lần tính toán mới hoàn toàn
-        random.seed()
-        np.random.seed()
-        probs = self.weights[1:] / np.sum(self.weights[1:])
-        population = []
-
-        for _ in range(population_size):
-            ticket = np.random.choice(
-                range(1, 81), size=target_size, replace=False, p=probs
-            )
-            population.append(sorted(list(ticket)))
-
-        def fitness(t):
-            score = sum(self.weights[num] for num in t)
-            spread = np.std(t)
-            return score * (1 + spread * 0.04)
-
-        for gen in range(generations):
-            population.sort(key=lambda t: fitness(t), reverse=True)
-            parents = population[: population_size // 4]
-            new_pop = list(parents)
-
-            while len(new_pop) < population_size:
-                p1, p2 = random.sample(parents, 2)
-                split = target_size // 2
-                child = list(set(p1[:split] + p2[split:]))
-
-                if random.random() < mutation or len(child) < target_size:
-                    missing = target_size - len(child)
-                    avail = [n for n in range(1, 81) if n not in child]
-                    child.extend(random.sample(avail, missing))
-
-                new_pop.append(sorted(child))
-            population = new_pop
-
-        population.sort(key=lambda t: fitness(t), reverse=True)
-        unique_tickets = []
-        seen = set()
-
-        for t in population:
-            t_tuple = tuple(t)
-            if t_tuple not in seen:
-                seen.add(t_tuple)
-                # Chuyển kiểu dữ liệu np.int64 về int chuẩn Python
-                clean_ticket = [int(x) for x in t]
-                unique_tickets.append((clean_ticket, round(fitness(t), 2)))
-            if len(unique_tickets) == 5:
-                break
-
-        return unique_tickets
+    unique_tickets = []
+    seen = set()
+    for t, s in candidates:
+        t_tuple = tuple(t)
+        if t_tuple not in seen:
+            seen.add(t_tuple)
+            unique_tickets.append(([int(x) for x in t], s))
+        if len(unique_tickets) == top_n:
+            break
+    return unique_tickets
 
 
-# =============================================================================
-# 4. ENGINE TỐI ƯU HÓA MAX 3D / MAX 3D+ (MARKOV POSITIONAL MATRIX)
-# =============================================================================
-class Max3DAdvancedEngine:
-
-    def __init__(self):
-        self.p1 = np.ones((10, 10)) * 0.1
-        self.p2 = np.ones((10, 10)) * 0.1
-        self.p3 = np.ones((10, 10)) * 0.1
-
-    def fit_history(self, history_draws):
-        if len(history_draws) < 2:
-            return
-
-        for t in range(len(history_draws) - 1):
-            curr_code = f"{int(history_draws[t]):03d}"
-            next_code = f"{int(history_draws[t+1]):03d}"
-
-            c1, n1 = int(curr_code[0]), int(next_code[0])
-            c2, n2 = int(curr_code[1]), int(next_code[1])
-            c3, n3 = int(curr_code[2]), int(next_code[2])
-
-            self.p1[c1][n1] += 1.0
-            self.p2[c2][n2] += 1.0
-            self.p3[c3][n3] += 1.0
-
-        self.p1 /= self.p1.sum(axis=1, keepdims=True)
-        self.p2 /= self.p2.sum(axis=1, keepdims=True)
-        self.p3 /= self.p3.sum(axis=1, keepdims=True)
-
-    def generate_combos(
-        self, last_draw, intuition_seeds=None, is_plus=False, top_k=5
-    ):
-        code = f"{int(last_draw):03d}"
-        c1, c2, c3 = int(code[0]), int(code[1]), int(code[2])
-
-        prob1 = np.copy(self.p1[c1])
-        prob2 = np.copy(self.p2[c2])
-        prob3 = np.copy(self.p3[c3])
-
-        if intuition_seeds:
-            for seed in intuition_seeds:
-                s_str = f"{int(seed):03d}"
-                prob1[int(s_str[0])] *= 1.5
-                prob2[int(s_str[1])] *= 1.5
-                prob3[int(s_str[2])] *= 1.5
-
-        scored = []
-        for num in range(1000):
-            s = f"{num:03d}"
-            d1, d2, d3 = int(s[0]), int(s[1]), int(s[2])
-
-            # Lọc cân bằng Gauss (Tổng 3 chữ số từ 7 đến 20)
-            if not (7 <= d1 + d2 + d3 <= 20):
-                continue
-
-            score = prob1[d1] * prob2[d2] * prob3[d3]
-            scored.append((s, round(score * 1000, 2)))
-
-        scored.sort(key=lambda x: x[1], reverse=True)
-
-        if not is_plus:
-            return scored[:top_k]
-        else:
-            top_singles = [x[0] for x in scored[:10]]
-            pairs = list(itertools.combinations(top_singles, 2))
-            pair_results = []
-            for p1, p2 in pairs[:top_k]:
-                score_p = next(x[1] for x in scored if x[0] == p1) + next(
-                    x[1] for x in scored if x[0] == p2
-                )
-                pair_results.append((f"{p1} - {p2}", round(score_p, 2)))
-            return pair_results
-
-
-# =============================================================================
-# 5. ĐIỀU HƯỚNG GIAO DIỆN STREAMLIT
-# =============================================================================
-st.sidebar.header("🕹️ TÙY CHỌN HẠNG MỤC")
-game_type = st.sidebar.selectbox(
-    "Chọn trò chơi phân tích:",
-    ["VIETLOTT KENO (20/80)", "VIETLOTT MAX 3D / MAX 3D+"],
-)
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("📥 Nguồn Dữ Liệu Lịch Sử")
-data_mode = st.sidebar.radio(
-    "Chế độ nạp:",
-    ["📡 Cào Tự Động Realtime", "Dùng Dữ Liệu Mẫu Giả Lập", "Tải File CSV/Excel"],
-)
-
-history_data = []
-
-if data_mode == "📡 Cào Tự Động Realtime":
-    if st.sidebar.button("🔄 Cập Nhật Dữ Liệu Mới Nhất"):
-        with st.spinner("Đang kết nối cào dữ liệu trực tiếp..."):
-            if "KENO" in game_type:
-                history_data = fetch_live_keno(100)
-            else:
-                history_data = fetch_live_max3d(60)
-
-            if history_data:
-                st.sidebar.success(
-                    f"✅ Đã cào thành công {len(history_data)} kỳ quay!"
-                )
-            else:
-                st.sidebar.warning(
-                    "⚠️ Cổng cào dữ liệu bận. Hệ thống sẽ tự dùng dữ liệu"
-                    " mẫu."
-                )
-
-elif data_mode == "Tải File CSV/Excel":
-    file_up = st.sidebar.file_uploader(
-        "Tải file dữ liệu:", type=["csv", "xlsx", "txt"]
+def optimize_max3d(history, is_plus=False, top_n=5):
+    p1, p2, p3 = (
+        np.ones((10, 10)) * 0.1,
+        np.ones((10, 10)) * 0.1,
+        np.ones((10, 10)) * 0.1,
     )
-    if file_up:
-        history_data = parse_file_upload(file_up)
-        if history_data:
-            st.sidebar.success(f"✅ Đã nạp {len(history_data)} kỳ từ file!")
 
-# Tự động cấp dữ liệu mẫu nếu chưa có dữ liệu
-if not history_data:
-    
-    if "KENO" in game_type:
-        history_data = [
-            list(np.random.choice(range(1, 81), size=20, replace=False))
-            for _ in range(80)
-        ]
+    for t in range(len(history) - 1):
+        c_code, n_code = f"{int(history[t]):03d}", f"{int(history[t+1]):03d}"
+        p1[int(c_code[0])][int(n_code[0])] += 1.0
+        p2[int(c_code[1])][int(n_code[1])] += 1.0
+        p3[int(c_code[2])][int(n_code[2])] += 1.0
+
+    p1 /= p1.sum(axis=1, keepdims=True)
+    p2 /= p2.sum(axis=1, keepdims=True)
+    p3 /= p3.sum(axis=1, keepdims=True)
+
+    last = f"{int(history[0]):03d}"
+    c1, c2, c3 = int(last[0]), int(last[1]), int(last[2])
+
+    scored = []
+    for num in range(1000):
+        s = f"{num:03d}"
+        d1, d2, d3 = int(s[0]), int(s[1]), int(s[2])
+        if not (7 <= d1 + d2 + d3 <= 20):
+            continue
+        score = p1[c1][d1] * p2[c2][d2] * p3[c3][d3]
+        scored.append((s, round(score * 1000, 2)))
+
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    if not is_plus:
+        return scored[:top_n]
     else:
-        history_data = [f"{np.random.randint(0, 1000):03d}" for _ in range(50)]
-
-# THÔNG TIN TÂM THỨC
-st.sidebar.markdown("---")
-st.sidebar.subheader("🧠 Tâm Thức & Trực Giác")
-if "KENO" in game_type:
-    intuition_in = st.sidebar.text_input(
-        "Các số Keno trực giác (cách nhau bởi dấu phẩy):", value="37, 68, 15"
-    )
-    intuition_list = [
-        int(x.strip()) for x in intuition_in.split(",") if x.strip().isdigit()
-    ]
-    target_k = st.sidebar.slider("Loại vé Keno (Bậc số):", 2, 10, 6)
-    mutation_val = (
-        st.sidebar.slider("Tỷ lệ Đột biến Di truyền (%):", 5, 50, 20) / 100.0
-    )
-else:
-    max3d_mode = st.sidebar.radio(
-        "Thể thức:", ["Max 3D (1 Bộ số)", "Max 3D+ (Cặp 2 bộ số)"]
-    )
-    intuition_in = st.sidebar.text_input(
-        "Các bộ 3 số trực giác (VD: 378, 519):", value="378"
-    )
-    intuition_list = [
-        x.strip() for x in intuition_in.split(",") if x.strip().isdigit()
-    ]
+        top_singles = [x[0] for x in scored[:10]]
+        pairs = list(itertools.combinations(top_singles, 2))
+        res = []
+        for p1_str, p2_str in pairs[:top_n]:
+            sc = next(x[1] for x in scored if x[0] == p1_str) + next(
+                x[1] for x in scored if x[0] == p2_str
+            )
+            res.append((f"{p1_str} - {p2_str}", round(sc, 2)))
+        return res
 
 
 # =============================================================================
-# 6. KHU VỰC THỰC THI THUẬT TOÁN & HIỂN THỊ KẾT QUẢ
+# 4. GIAO DIỆN ĐIỀU KHIỂN
 # =============================================================================
-st.markdown("---")
+st.sidebar.header("⚙️ CẤU HÌNH")
+game_type = st.sidebar.radio("Loại vé:", ["KENO (20/80)", "MAX 3D", "MAX 3D+"])
+
+file_upload = st.sidebar.file_uploader(
+    "Nạp CSV/Excel thủ công (Chính xác 100%):", type=["csv", "xlsx", "txt"]
+)
+
+if file_upload:
+    history_data = parse_file_upload(file_upload)
+    st.sidebar.success(f"✅ Đã nhận {len(history_data)} kỳ từ File")
+else:
+    with st.spinner("Đang cào dữ liệu Vietlott trực tiếp..."):
+        if "KENO" in game_type:
+            history_data = fetch_keno_realtime(100)
+        else:
+            history_data = fetch_max3d_realtime(60)
 
 if "KENO" in game_type:
-    if st.button("🚀 KÍCH HOẠT THUẬT TOÁN KENO CHAOS-GENETIC", type="primary"):
-        with st.spinner("🌀 Đang xử lý Không gian Dải Hút & Cho Vé Tiến Hóa..."):
-            engine = KenoAdvancedEngine()
-            engine.process_chaos_and_game_theory(
-                history_data, intuition_numbers=intuition_list
-            )
-            results = engine.run_genetic_evolution(
-                target_size=target_k,
-                population_size=120,
-                generations=40,
-                mutation=mutation_val,
-            )
+    target_k = st.sidebar.slider("Chọn bậc Keno:", 2, 10, 6)
 
-        st.subheader(f"🔥 Top 5 Vé Keno Bậc {target_k} Tiến Hóa Tối Ưu")
-        for idx, (ticket, score) in enumerate(results, 1):
-            st.markdown(
-                f"""
-            <div style="background-color: #161b22; padding: 18px; border-radius: 12px; margin-bottom: 12px; border-left: 6px solid #00dfd8;">
-                <h4 style="margin:0; color: #00dfd8;">🧬 Bộ Vé Tiến Hóa #{idx} — (Fitness Score: {score})</h4>
-                <h2 style="margin:8px 0; color: #ffffff; letter-spacing: 3px;">{ticket}</h2>
-            </div>
-            """,
-                unsafe_allow_html=True,
-            )
-
-else:
-    if st.button("🚀 KÍCH HOẠT THUẬT TOÁN MAX 3D MARKOV VECTOR", type="primary"):
-        with st.spinner("🌀 Đang tính toán Ma trận Markov Vị trí..."):
-            engine = Max3DAdvancedEngine()
-            engine.fit_history(history_data)
-
-            last_draw = history_data[0]
-            is_plus = True if "Max 3D+" in max3d_mode else False
-
-            results = engine.generate_combos(
-                last_draw,
-                intuition_seeds=intuition_list,
-                is_plus=is_plus,
-                top_k=5,
-            )
-
-        st.info(f"📌 Kỳ quay gần nhất ($T$): **[{last_draw}]**")
-        st.subheader(f"🔥 Top 5 Bộ Số {max3d_mode} Được Khuyên Nghị")
-
-        for idx, (code, score) in enumerate(results, 1):
-            st.markdown(
-                f"""
-            <div style="background-color: #161b22; padding: 18px; border-radius: 12px; margin-bottom: 12px; border-left: 6px solid #ff0055;">
-                <h4 style="margin:0; color: #ff0055;">🎯 Bộ Vé #{idx} — Điểm Năng Lượng: {score}</h4>
-                <h1 style="margin:5px 0; color: #ffffff; letter-spacing: 4px;">{code}</h1>
-            </div>
-            """,
-                unsafe_allow_html=True,
+# =============================================================================
+# 5. KHU VỰC TẬP TRUNG KẾT QUẢ
+# =============================================================================
+if not history_data:
+    st.error(
+        "❌ CHƯA CÓ DỮ LIỆU THỰC TẾ: Web nguồn bị chặn và chưa nạp file. Hãy nạp"
+        " file CSV/Excel lịch sử để chạy mô hình toán!"
     )
+else:
+    st.success(
+        f"🌐 Dữ liệu thực tế khả dụng: **{len(history_data)}** kỳ quay mới nhất."
+    )
+
+    if st.button("🔥 CHẠY THUẬT TOÁN TỐI ƯU KẾT QUẢ", type="primary"):
+        if "KENO" in game_type:
+            res = optimize_keno(history_data, target_k=target_k, top_n=5)
+            st.subheader(f"🎯 TOP 5 BỘ VÉ KENO BẬC {target_k} TỐI ƯU NHẤT")
+            for idx, (t, sc) in enumerate(res, 1):
+                st.markdown(f"### #{idx}. `{t}` — (Score: {sc})")
+        else:
+            is_plus = True if game_type == "MAX 3D+" else False
+            res = optimize_max3d(history_data, is_plus=is_plus, top_n=5)
+            st.subheader(f"🎯 TOP 5 BỘ VÉ {game_type} TỐI ƯU NHẤT")
+            for idx, (code, sc) in enumerate(res, 1):
+                st.markdown(f"### #{idx}. `{code}` — (Score: {sc})")
