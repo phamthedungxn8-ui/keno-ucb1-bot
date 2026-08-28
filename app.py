@@ -133,6 +133,9 @@ class KenoAdvancedEngine:
     def run_genetic_evolution(
         self, target_size=6, population_size=100, generations=35, mutation=0.2
     ):
+        # Giải phóng seed để mỗi lần bấm nút là 1 lần tính toán mới hoàn toàn
+        random.seed()
+        np.random.seed()
         probs = self.weights[1:] / np.sum(self.weights[1:])
         population = []
 
@@ -304,7 +307,7 @@ elif data_mode == "Tải File CSV/Excel":
 
 # Tự động cấp dữ liệu mẫu nếu chưa có dữ liệu
 if not history_data:
-    np.random.seed(42)
+    
     if "KENO" in game_type:
         history_data = [
             list(np.random.choice(range(1, 81), size=20, replace=False))
