@@ -24,22 +24,21 @@ st.caption(
 
 
 # =============================================================================
-# 2. BỘ CÀO DỮ LIỆU ĐA NGUỒN (MULTI-FALLBACK CRAWLER - ZERO DUMMY DATA)
+# 2. BỘ CÀO DỮ LIỆU ĐA NGUỒN (FIX CHUẨN REGEX & TRÁNH TƯỜNG LỬA)
 # =============================================================================
 @st.cache_data(ttl=300)
 def fetch_keno_realtime(limit=100):
     urls = [
-        "https://minhchinh.com/live/keno.php",
         "https://xoso.com.vn/live-keno.html",
+        "https://minhchinh.com/live/keno.php"
     ]
     headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        )
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
     }
     for url in urls:
         try:
-            res = requests.get(url, headers=headers, timeout=6)
+            res = requests.get(url, headers=headers, timeout=8)
             if res.status_code == 200:
                 draws = []
                 for line in res.text.split("\n"):
@@ -49,30 +48,28 @@ def fetch_keno_realtime(limit=100):
                     uniq = [x for x in valid if not (x in seen or seen.add(x))]
                     if len(uniq) >= 20:
                         draws.append(uniq[:20])
-                if len(draws) >= 10:
+                if len(draws) >= 5:
                     return draws[:limit]
         except Exception:
             continue
     return None
 
-
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=300)
 def fetch_max3d_realtime(limit=60):
     urls = [
         "https://xoso.com.vn/ket-qua-vietlott-max-3d.html",
-        "https://minhchinh.com/ket-qua-vietlott-max3d.html",
+        "https://minhchinh.com/ket-qua-vietlott-max3d.html"
     ]
     headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        )
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
     }
     for url in urls:
         try:
-            res = requests.get(url, headers=headers, timeout=6)
+            res = requests.get(url, headers=headers, timeout=8)
             if res.status_code == 200:
                 tokens = re.findall(r"\b\d{3}\b", res.text)
-                if len(tokens) >= 20:
+                if len(tokens) >= 10:
                     return tokens[:limit]
         except Exception:
             continue
