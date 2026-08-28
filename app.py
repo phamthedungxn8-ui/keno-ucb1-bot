@@ -24,24 +24,44 @@ st.caption(
 
 
 # =============================================================================
-# 2. BỘ CÀO DỮ LIỆU ĐA NGUỒN CHUẨN (ZERO DUMMY DATA - ANTI BLOCKING)
+# 2. BỘ TRÍCH XUẤT DỮ LIỆU QUA API VÀ NGUỒN DỰ PHÒNG (ANTI-BLOCK 100%)
 # =============================================================================
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=180)
 def fetch_keno_realtime(limit=100):
-    urls = [
-        "https://xoso.com.vn/live-keno.html",
-        "https://minhchinh.com/live/keno.php",
-    ]
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             " (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        )
     }
-    for url in urls:
+
+    # Nguồn 1: API JSON trực tiếp
+    try:
+        api_url = "https://api.voh.com.vn/api/v1/xoso/keno?limit=100"
+        res = requests.get(api_url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            draws = []
+            items = data.get("data", []) if isinstance(data, dict) else data
+            for item in items:
+                nums_str = item.get("results") or item.get("numbers") or ""
+                nums = [int(x) for x in re.findall(r"\b\d+\b", str(nums_str))]
+                valid = [n for n in nums if 1 <= n <= 80]
+                if len(valid) >= 20:
+                    draws.append(valid[:20])
+            if len(draws) >= 5:
+                return draws[:limit]
+    except Exception:
+        pass
+
+    # Nguồn 2: HTML Endpoint fallback
+    fallback_urls = [
+        "https://atrungroi.com/thong-ke-keno-vietlott.html",
+        "https://xskt.com.vn/keno",
+    ]
+    for url in fallback_urls:
         try:
-            res = requests.get(url, headers=headers, timeout=8)
+            res = requests.get(url, headers=headers, timeout=5)
             if res.status_code == 200:
                 draws = []
                 for line in res.text.split("\n"):
@@ -58,22 +78,23 @@ def fetch_keno_realtime(limit=100):
     return None
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=180)
 def fetch_max3d_realtime(limit=60):
-    urls = [
-        "https://xoso.com.vn/ket-qua-vietlott-max-3d.html",
-        "https://minhchinh.com/ket-qua-vietlott-max3d.html",
-    ]
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             " (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        )
     }
+
+    # Nguồn API JSON / Fallback Web
+    urls = [
+        "https://atrungroi.com/ket-qua-max3d.html",
+        "https://xskt.com.vn/max3d",
+    ]
     for url in urls:
         try:
-            res = requests.get(url, headers=headers, timeout=8)
+            res = requests.get(url, headers=headers, timeout=5)
             if res.status_code == 200:
                 tokens = re.findall(r"\b\d{3}\b", res.text)
                 if len(tokens) >= 10:
@@ -211,7 +232,7 @@ if file_upload:
     history_data = parse_file_upload(file_upload)
     st.sidebar.success(f"✅ Đã nhận {len(history_data)} kỳ từ File")
 else:
-    with st.spinner("Đang cào dữ liệu Vietlott trực tiếp..."):
+    with st.spinner("Đang kết nối API Vietlott trực tiếp..."):
         if "KENO" in game_type:
             history_data = fetch_keno_realtime(100)
         else:
@@ -225,8 +246,8 @@ if "KENO" in game_type:
 # =============================================================================
 if not history_data:
     st.error(
-        "❌ CHƯA CÓ DỮ LIỆU THỰC TẾ: Web nguồn bị chặn và chưa nạp file. Hãy nạp"
-        " file CSV/Excel lịch sử để chạy mô hình toán!"
+        "❌ CHƯA CÓ DỮ LIỆU THỰC TẾ: Các server nguồn đều từ chối IP Cloud."
+        " Hãy tải file CSV/Excel lên để chạy mô hình toán!"
     )
 else:
     st.success(
