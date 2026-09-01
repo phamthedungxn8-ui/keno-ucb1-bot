@@ -3,4 +3,5 @@ numpy
 pandas
 numba
 requests
+beautifulsoup4
 streamlit-autorefresh
