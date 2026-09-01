@@ -40,8 +40,10 @@ with col_info2:
     st.metric(label="📊 DỮ LIỆU CỬA SỔ TRUỘT", value=f"{binary_matrix.shape[0]} Kỳ")
 
 with col_info3:
-    current_time = datetime.now().strftime("%H:%M:%S")
-    st.metric(label="⏱️ LẦN CẬP NHẬT GẦN NHẤT", value=current_time)
+    # Cộng 7 giờ (25200 giây) để chuyển từ UTC sang múi giờ Việt Nam (ICT)
+    from datetime import timedelta
+    current_time_vn = (datetime.now() + timedelta(hours=7)).strftime("%H:%M:%S")
+    st.metric(label="⏱️ LẦN CẬP NHẬT GẦN NHẤT", value=current_time_vn)
 
 st.divider()
 
