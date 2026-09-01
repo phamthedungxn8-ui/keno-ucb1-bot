@@ -29,6 +29,7 @@ class KenoQuantumEngine:
             for table in tables:
                 rows = table.find_all('tr')
                 for row in rows:
+                    # Bóc tách Mã kỳ quay
                     draw_id_elem = row.find('td', class_='str_kieu') or row.find('a')
                     if draw_id_elem and latest_draw_id == "N/A":
                         latest_draw_id = draw_id_elem.text.strip()
