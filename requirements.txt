@@ -3,3 +3,4 @@ numpy
 pandas
 numba
 requests
+streamlit-autorefresh
