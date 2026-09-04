@@ -104,9 +104,7 @@ with tab1:
 
     selected_tickets = []
     for i in range(top_n):
-        ticket = sorted(
-            list(ranked_numbers[i * target_k : (i + 1) * target_k])
-        )
+        ticket = sorted([int(x) for x in ranked_numbers[i * target_k : (i + 1) * target_k]])
         # Tính Sync Score nội bộ của bộ vé
         sub_plv = [
             plv_matrix[a - 1, b - 1]
