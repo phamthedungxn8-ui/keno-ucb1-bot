@@ -1,153 +1,160 @@
-import numpy as np
-import pandas as pd
-import plotly.express as px
-from scipy.signal import hilbert
 import streamlit as st
+import cv2
+import numpy as np
+import pytesseract
+from PIL import Image
+import pandas as pd
+import re
+from itertools import combinations
 
-st.set_page_config(
-    page_title="Keno Brain Oscillators Engine",
-    page_icon="🧠",
-    layout="wide"
-)
+# 1. Cấu hình Trang Streamlit
+st.set_page_config(page_title="Hệ Thống Phân Tích Cấu Trúc XSMB (OCR 3 Kỳ)", layout="wide")
 
-st.title("🧠 KENO BRAIN OSCILLATOR & ALPHA RHYTHM ENGINE")
-st.caption("Mô hình hóa 80 con số Keno thành hệ thống các bộ dao động liên kết (Coupled Oscillators) & Đồng bộ Pha Kuramoto")
+st.title("🔬 Hệ Thống Phân Tích Động Lực Học Phi Tuyến XSMB (OCR 3 Kỳ)")
+st.caption("Trích xuất Bảng giải -> Nhúng Trọng số Không gian -> Tính Toán Lô Xiên Cộng Hưởng")
 
-# =============================================================================
-# 1. TẢI DỮ LIỆU KENO THỰC TẾ (FILE CSV)
-# =============================================================================
-st.sidebar.header("📥 NẠP DỮ LIỆU KENO THỰC TẾ")
+# 2. Định nghĩa Trọng số Giải (Spatial Weights)
+WEIGHTS = {
+    'GĐB': 3.5,
+    'G1': 2.5,
+    'G2': 2.0,
+    'G3': 1.5,
+    'G4': 1.2,
+    'G5': 1.0,
+    'G6': 0.8,
+    'G7': 2.2
+}
 
-uploaded_file = st.sidebar.file_uploader("Upload file CSV kết quả thực tế (chứa 20 số/dòng):", type=["csv"])
-
-history_data = []
-
-if uploaded_file is not None:
-    try:
-        # Đọc file CSV không chứa tiêu đề
-        df_raw = pd.read_csv(uploaded_file, header=None)
-        for _, row in df_raw.iterrows():
-            # Lấy các giá trị số hợp lệ trên mỗi dòng
-            nums = []
-            for val in row.values:
-                if pd.notna(val):
-                    try:
-                        num = int(float(str(val).strip()))
-                        if 1 <= num <= 80:
-                            nums.append(num)
-                    except ValueError:
-                        continue
-            if len(nums) == 20:
-                history_data.append(nums)
-    except Exception as e:
-        st.sidebar.error(f"Lỗi khi đọc file CSV: {e}")
-
-# Cảnh báo nếu chưa nạp đủ dữ liệu thực tế
-if len(history_data) < 10:
-    st.warning("⚠️ Vui lòng upload file CSV chứa ít nhất 10 đến 30 kỳ quay Keno thực tế ở thanh bên (Sidebar) để bắt đầu phân tích.")
-    st.stop()
-
-# =============================================================================
-# 2. THUẬT TOÁN BỘ NÃO DAO ĐỘNG (CORE ENGINE)
-# =============================================================================
-num_draws = len(history_data)
-matrix = np.zeros((80, num_draws))
-
-# Dựng ma trận tín hiệu nhị phân (-1, 1)
-for t, draw in enumerate(history_data):
-    for num in draw:
-        if 1 <= num <= 80:
-            matrix[num - 1, t] = 1.0
-matrix[matrix == 0] = -1.0
-
-# Trích xuất pha tức thời bằng Hilbert Transform
-analytic_signal = hilbert(matrix, axis=1)
-phases = np.angle(analytic_signal)
-
-# Tính Nhịp Alpha (Chỉ số trật tự Kuramoto R) qua từng kỳ
-order_parameters = []
-for t in range(num_draws):
-    R_t = np.abs(np.mean(np.exp(1j * phases[:, t])))
-    order_parameters.append(R_t)
-
-current_alpha = order_parameters[-1]
-
-# Cửa sổ tính toán PLV (dùng tối đa 30 kỳ gần nhất)
-window_size = min(30, num_draws)
-recent_phases = phases[:, -window_size:]
-plv_matrix = np.zeros((80, 80))
-
-for i in range(80):
-    for j in range(i + 1, 80):
-        phase_diff = recent_phases[i, :] - recent_phases[j, :]
-        plv = np.abs(np.mean(np.exp(1j * phase_diff)))
-        plv_matrix[i, j] = plv
-        plv_matrix[j, i] = plv
-
-# Tính Tổng lực kéo tần số (Coupling Force) của từng số
-coupling_force = np.sum(plv_matrix, axis=1)
-latest_phases = phases[:, -1]
-
-# Mức độ sẵn sàng bùng nổ
-readiness_score = coupling_force * np.cos(latest_phases)
-
-# =============================================================================
-# 3. HIỂN THỊ KẾT QUẢ KIỂM CHỨNG TRÊN GIAO DIỆN
-# =============================================================================
-st.sidebar.markdown("---")
-st.sidebar.header("⚙️ CẤU HÌNH THUẬT TOÁN")
-target_k = st.sidebar.slider("Chọn Bậc Keno (Số con/vé):", 2, 10, 6)
-top_n = st.sidebar.slider("Số lượng bộ vé gợi ý:", 3, 10, 5)
-
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric("Tình trạng Nhịp Alpha (Kuramoto R)", f"{current_alpha:.4f}")
-with col2:
-    st.metric("Mức độ Cộng hưởng Hệ thống", "CAO 🔥" if current_alpha > 0.15 else "BÌNH THƯỜNG 🌊")
-with col3:
-    st.metric("Số kỳ thực tế phân tích", f"{num_draws} Kỳ")
-
-st.markdown("---")
-
-tab1, tab2, tab3 = st.tabs(["🎯 TOP BỘ VÉ TỐI ƯU", "📊 BẢN ĐỒ KHÓA PHA (PLV)", "📈 BIỂU ĐỒ NHỊP ALPHA"])
-
-with tab1:
-    st.subheader(f"🔥 TOP {top_n} BỘ VÉ BẬC {target_k} CÓ ĐỘ ĐỒNG BỘ PHA CAO NHẤT")
+# 3. Hàm Tiền Xử Lý Ảnh & OCR Trích Xuất Cấu Trúc Giải
+def ocr_extract_prizes(image):
+    # Chuyển ảnh sang OpenCV format
+    img_np = np.array(image.convert('RGB'))
+    gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
     
-    # Sắp xếp các số theo Readiness Score
-    ranked_numbers = np.argsort(readiness_score)[::-1] + 1
+    # Tăng cường tương phản & Khử nhiễu
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    enhanced = clahe.apply(gray)
+    _, thresh = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    
+    # OCR Tesseract (Cấu hình chỉ lấy số và khoảng trắng/dấu gạch)
+    custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789-\n '
+    text = pytesseract.image_to_string(thresh, config=custom_config)
+    
+    # Trích xuất toàn bộ các số có 2 đến 5 chữ số
+    raw_numbers = re.findall(r'\b\d{2,5}\b', text)
+    
+    # Áp dụng Bảng Phân Bổ Số Lượng Giải Chuẩn XSMB (27 số)
+    # GĐB(1), G1(1), G2(2), G3(6), G4(4), G5(6), G6(3), G7(4)
+    parsed_matrix = {
+        'GĐB': raw_numbers[0:1] if len(raw_numbers) >= 1 else ["00000"],
+        'G1':  raw_numbers[1:2] if len(raw_numbers) >= 2 else ["00000"],
+        'G2':  raw_numbers[2:4] if len(raw_numbers) >= 4 else ["00000", "00000"],
+        'G3':  raw_numbers[4:10] if len(raw_numbers) >= 10 else ["00000"]*6,
+        'G4':  raw_numbers[10:14] if len(raw_numbers) >= 14 else ["0000"]*4,
+        'G5':  raw_numbers[14:20] if len(raw_numbers) >= 20 else ["0000"]*6,
+        'G6':  raw_numbers[20:23] if len(raw_numbers) >= 23 else ["000"]*3,
+        'G7':  raw_numbers[23:27] if len(raw_numbers) >= 27 else ["00"]*4,
+    }
+    return parsed_matrix
 
-    selected_tickets = []
-    for i in range(top_n):
-        # Ép kiểu int chuẩn Python để tránh lỗi np.int64 khi hiển thị
-        ticket = sorted([int(x) for x in ranked_numbers[i * target_k : (i + 1) * target_k]])
+# 4. Thuật Toán Phân Tích Cấu Trúc Động Lực Học (Xiên 2 / Xiên 3)
+def analyze_3_periods_structure(period_data_list):
+    # period_data_list: [dict_T2, dict_T1, dict_T0]
+    
+    # Trích xuất cặp số (2 chữ số cuối) cho từng giải và từng kỳ
+    pair_weights = {}
+    
+    for t_idx, period in enumerate(period_data_list):
+        decay_factor = (t_idx + 1) / 3.0  # Trọng số thời gian tăng dần: T-2 (0.33), T-1 (0.66), T (1.0)
         
-        # Tính Sync Score nội bộ của bộ vé
-        sub_plv = [plv_matrix[a - 1, b - 1] for a in ticket for b in ticket if a != b]
-        avg_sync = np.mean(sub_plv) if sub_plv else 0
-        selected_tickets.append((ticket, avg_sync))
+        for g_name, s_list in period.items():
+            w_g = WEIGHTS.get(g_name, 1.0)
+            
+            for s in s_list:
+                if len(s) >= 2:
+                    pair = s[-2:]  # Lấy 2 số cuối (đuôi lô)
+                    # Điểm tích lũy = Trọng số giải * Trọng số thời gian
+                    score = w_g * decay_factor
+                    pair_weights[pair] = pair_weights.get(pair, 0.0) + score
 
-    for idx, (ticket, sync) in enumerate(selected_tickets, 1):
-        st.markdown(f"#### #{idx}. `{ticket}` — **PLV Sync Score:** `{sync:.4f}`")
+    # Tính Toán Chỉ Số Tương Tác Lô Xiên (Xiên 2 & Xiên 3)
+    all_pairs = list(pair_weights.keys())
+    xien_2_scores = []
+    xien_3_scores = []
 
-with tab2:
-    st.subheader(f"Bản đồ Nhiệt Khóa Pha (Phase-Locking Matrix 80x80 - {window_size} kỳ gần nhất)")
-    st.caption("Các điểm màu sáng thể hiện cặp số có lực kéo tần số mạnh mẽ, thường xuyên khóa pha với nhau.")
-    fig_heatmap = px.imshow(
-        plv_matrix,
-        labels=dict(x="Mã số Keno", y="Mã số Keno", color="Độ gắn kết PLV"),
-        x=list(range(1, 81)),
-        y=list(range(1, 81)),
-        color_continuous_scale="Viridis"
-    )
-    st.plotly_chart(fig_heatmap, use_container_width=True)
+    # Xiên 2
+    for p1, p2 in combinations(all_pairs, 2):
+        if p1 != p2:
+            s1, s2 = pair_weights[p1], pair_weights[p2]
+            # Chỉ số cộng hưởng năng lượng S_ij = (s1 + s2) * (1 + min(s1,s2)/max(s1,s2))
+            s_ij = (s1 + s2) * (1.0 + min(s1, s2) / (max(s1, s2) + 1e-5))
+            xien_2_scores.append({
+                "Cặp Xiên 2": f"{p1} - {p2}",
+                "Năng Lượng Tương Tác (S_ij)": round(s_ij, 2),
+                "Đồng Bộ Pha (PLV)": round(min(s1, s2) / (max(s1, s2) + 1e-5), 2),
+                "Đánh Giá": "Cộng hưởng cao" if s_ij > 8.0 else "Dao động ổn định"
+            })
 
-with tab3:
-    st.subheader("Biến động Nhịp Alpha (Global Order Parameter) qua thời gian")
-    st.caption("Những đỉnh cao thể hiện thời điểm toàn bộ 80 bộ dao động đạt trạng thái đồng bộ cực đại.")
-    df_alpha = pd.DataFrame({
-        "Kỳ quay": list(range(1, num_draws + 1)),
-        "Năng lượng Alpha": order_parameters
-    })
-    fig_alpha = px.line(df_alpha, x="Kỳ quay", y="Năng lượng Alpha", markers=True, line_shape="spline")
-    st.plotly_chart(fig_alpha, use_container_width=True)
+    # Xiên 3
+    for p1, p2, p3 in combinations(all_pairs, 3):
+        if len({p1, p2, p3}) == 3:
+            s1, s2, s3 = pair_weights[p1], pair_weights[p2], pair_weights[p3]
+            s_ijk = (s1 + s2 + s3) * 1.5
+            xien_3_scores.append({
+                "Bộ Xiên 3": f"{p1} - {p2} - {p3}",
+                "Năng Lượng Tương Tác (S_ijk)": round(s_ijk, 2),
+                "Chỉ Số Bùng Nổ": round(s_ijk * 1.2, 2),
+                "Đánh Giá": "Golden Triad Attractor" if s_ijk > 12.0 else "Liên kết trung bình"
+            })
+
+    df_x2 = pd.DataFrame(xien_2_scores).sort_values(by="Năng Lượng Tương Tác (S_ij)", ascending=False)
+    df_x3 = pd.DataFrame(xien_3_scores).sort_values(by="Năng Lượng Tương Tác (S_ijk)", ascending=False)
+    
+    return df_x2, df_x3
+
+# 5. Giao Diện Upload 3 Ảnh (3 Kỳ Quay)
+st.subheader("📸 Upload Ảnh Bảng Giải 3 Kỳ Liên Tiếp")
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    img_file_t2 = st.file_uploader("Kỳ T-2 (Xa nhất)", type=["jpg", "png", "jpeg"])
+with col2:
+    img_file_t1 = st.file_uploader("Kỳ T-1 (Kỳ trước)", type=["jpg", "png", "jpeg"])
+with col3:
+    img_file_t0 = st.file_uploader("Kỳ T (Mới nhất)", type=["jpg", "png", "jpeg"])
+
+if img_file_t2 and img_file_t1 and img_file_t0:
+    st.success("Đã nhận đủ 3 ảnh! Đang kích hoạt OCR & Trích xuất Ma trận Giải...")
+    
+    img_t2 = Image.open(img_file_t2)
+    img_t1 = Image.open(img_file_t1)
+    img_t0 = Image.open(img_file_t0)
+    
+    # Thực hiện OCR
+    data_t2 = ocr_extract_prizes(img_t2)
+    data_t1 = ocr_extract_prizes(img_t1)
+    data_t0 = ocr_extract_prizes(img_t0)
+    
+    # Hiển thị Ma trận Giải trích xuất
+    with st.expander("🔍 Xem Bảng Ma Trận Giải Sau Khi Trích Xuất OCR", expanded=False):
+        st.json({"Kỳ T-2": data_t2, "Kỳ T-1": data_t1, "Kỳ T (Mới nhất)": data_t0})
+    
+    # Phân tích & Đánh giá Động lực học
+    df_x2, df_x3 = analyze_3_periods_structure([data_t2, data_t1, data_t0])
+    
+    st.markdown("---")
+    st.subheader("🎯 KẾT QUẢ ĐÁNH GIÁ TỔNG HỢP (ƯU TIÊN LÔ XIÊN)")
+    
+    tab1, tab2 = st.tabs(["Top Xiên 2 Cộng Hưởng Cực Đại", "Top Xiên 3 Tam Giác Vàng"])
+    
+    with tab1:
+        st.dataframe(df_x2.head(10), use_container_width=True)
+        top_1_x2 = df_x2.iloc[0]["Cặp Xiên 2"]
+        st.info(f"💡 **Khuyến nghị Xiên 2 tối ưu nhất:** `{top_1_x2}` (Năng lượng tương tác cực đại trên trục GĐB-G7)")
+        
+    with tab2:
+        st.dataframe(df_x3.head(10), use_container_width=True)
+        top_1_x3 = df_x3.iloc[0]["Bộ Xiên 3"]
+        st.success(f"🔥 **Khuyến nghị Xiên 3 tối ưu nhất:** `{top_1_x3}` (Cụm điểm hút năng lượng - Attractor Cluster)")
+else:
+    st.warning("Vui lòng tải lên đủ 3 ảnh đại diện cho 3 kỳ quay liên tiếp để kích hoạt thuật toán.")
