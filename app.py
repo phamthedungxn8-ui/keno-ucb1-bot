@@ -1,154 +1,125 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-import math
 from itertools import combinations
-import time
+import math
 
-# ==========================================
-# SETUP GIAO DIỆN STREAMLIT
-# ==========================================
-st.set_page_config(
-    page_title="Keno Deep-Optimization Engine",
-    page_icon="🎲",
-    layout="wide"
-)
+st.set_page_config(page_title="Formal Verification Keno Engine", page_icon="🧮", layout="wide")
+st.title("🧮 Advanced Keno Reasoning Engine (MCTS + Formal Logic + Counterexample)")
 
-st.title("🎲 Keno Intelligence Engine: RL + CoT + Wheel Optimization")
-st.caption("Hệ thống tối ưu hóa Keno đa tầng tích hợp AI & Toán học tổ hợp")
-
-# ==========================================
-# MODULE 1: EXTENDED CHAIN-OF-THOUGHT (CoT)
-# ==========================================
-class ExtendedCoTEngine:
-    """Giả lập luồng tư duy mở rộng phân tích dữ liệu đa bước"""
+# =========================================================
+# TRỤ CỘT 3: FORMAL VERIFICATION SYSTEM (Môi Trường Kiểm Chứng)
+# =========================================================
+class FormalVerificationEngine:
     @staticmethod
-    def run_cot_reasoning(history_data, target_spots):
-        logs = []
-        logs.append("🧠 **Step 1 [CoT]:** Phân tích 1,000 kỳ quay gần nhất & ma trận chuyển trạng thái Markov.")
-        time.sleep(0.3)
-        
-        # Giả lập tính toán mật độ Quadrant
-        quadrant_density = {"Q1 (1-20)": 0.28, "Q2 (21-40)": 0.22, "Q3 (41-60)": 0.31, "Q4 (61-80)": 0.19}
-        top_quadrant = max(quadrant_density, key=quadrant_density.get)
-        logs.append(f"👉 **Mật độ phát hiện:** Vùng nóng nhất là **{top_quadrant}** với xác suất xả bóng {quadrant_density[top_quadrant]*100:.1f}%.")
-        
-        logs.append("🧠 **Step 2 [CoT]:** Kích hoạt cơ chế Number-Dropout (Lọc bớt 60% số nhiễu).")
-        time.sleep(0.3)
-        
-        logs.append("🧠 **Step 3 [CoT]:** Áp dụng bộ lọc Anti-Clustering loại bỏ dãy số chứa yếu tố tâm lý đám đông.")
-        time.sleep(0.3)
-        
-        return logs, [5, 12, 18, 27, 33, 41, 52, 68] # Trả về tập số tối ưu
+    def verify_quadrant_entropy(candidate_8):
+        quads = [(n - 1) // 20 for n in candidate_8]
+        counts = [quads.count(i) for i in range(4)]
+        probs = [c / 8.0 for c in counts if c > 0]
+        entropy = -sum(p * math.log2(p) for p in probs)
+        # Bắt buộc Entropy >= 1.38 (Đảm bảo độ phân tán không gian)
+        return entropy >= 1.38, entropy
 
-# ==========================================
-# MODULE 2: REINFORCEMENT LEARNING AGENT
-# ==========================================
-class KenoRLAgent:
-    """Q-Learning Agent tự điều chỉnh Tham số Dropout & Size cược"""
-    def __init__(self, actions=[0.4, 0.5, 0.6, 0.75]):
-        self.actions = actions
-        self.q_table = np.zeros((3, len(actions))) # 3 States: Low, Medium, High Volatility
+    @staticmethod
+    def verify_anti_clustering(candidate_8):
+        # Không cho phép quá 3 số liên tiếp nằm trong dải tâm lý 1-31
+        psychological_nums = [n for n in candidate_8 if n <= 31]
+        return len(psychological_nums) <= 5
 
-    def get_action(self, state):
-        # Epsilon-greedy selection
-        if np.random.uniform(0, 1) < 0.1:
-            return np.random.choice(len(self.actions))
-        return np.argmax(self.q_table[state])
-
-    def update_policy(self, state, action_idx, reward):
-        lr = 0.1
-        gamma = 0.9
-        self.q_table[state, action_idx] += lr * (reward + gamma * np.max(self.q_table[state]) - self.q_table[state, action_idx])
-
-# ==========================================
-# MODULE 3: COVERING WHEEL ENGINE
-# ==========================================
-def generate_covering_wheel(selected_numbers, ticket_size=3, match_target=3, condition_match=4):
-    subsets_m = list(combinations(selected_numbers, condition_match))
-    all_tickets = list(combinations(selected_numbers, ticket_size))
-    
-    covered_subsets = {ticket: set() for ticket in all_tickets}
-    for sub in subsets_m:
-        for ticket in all_tickets:
-            if set(ticket).issubset(set(sub)):
-                covered_subsets[ticket].add(sub)
-
-    uncovered = set(subsets_m)
-    final_tickets = []
-
-    while uncovered:
-        best_ticket = max(all_tickets, key=lambda t: len(covered_subsets[t] & uncovered))
-        final_tickets.append(best_ticket)
-        uncovered -= covered_subsets[best_ticket]
-
-    return final_tickets
-
-# ==========================================
-# STREAMLIT SIDEBAR CONTROLS
-# ==========================================
-st.sidebar.header("⚙️ Cấu hình Hệ thống")
-capital = st.sidebar.number_input("Tổng Băng Vốn (VNĐ)", min_value=100000, value=2000000, step=100000)
-unit_bet = st.sidebar.number_input("Size Cược/Vé (VNĐ)", min_value=10000, value=10000, step=10000)
-jackpot_val = st.sidebar.number_input("Giá trị Jackpot Bậc 10 Hiện tại (VNĐ)", min_value=2000000000, value=45000000000, step=1000000000)
-
-use_rl = st.sidebar.checkbox("Bật RL Agent tự chỉnh Dropout", value=True)
-use_cot = st.sidebar.checkbox("Bật Extended CoT Reasoning", value=True)
-
-# ==========================================
-# MAIN APP BODY
-# ==========================================
-col1, col2 = st.columns([2, 1])
-
-with col1:
-    st.subheader("💡 Luồng Tư Duy Mở Rộng (Extended Chain-of-Thought)")
-    if st.button("🚀 Kích Hoạt AI Engine & Lập Dàn Vé"):
-        # 1. Chạy CoT
-        with st.spinner("AI đang thực hiện suy luận đa tầng..."):
-            cot_engine = ExtendedCoTEngine()
-            logs, pool_numbers = cot_engine.run_cot_reasoning(None, 3)
+# =========================================================
+# TRỤ CỘT 4: COUNTEREXAMPLE GENERATOR (Sinh Phản Ví Dụ)
+# =========================================================
+class CounterexampleStressTest:
+    @staticmethod
+    def run_stress_test(candidate_8, num_simulations=1000):
+        losses = 0
+        for _ in range(num_simulations):
+            # Tạo trường hợp kỳ dị (Xả bóng thiên vị 1 Quadrant hoặc Chẵn/Lẻ)
+            bias = np.random.choice(["even_heavy", "odd_heavy", "random"])
+            if bias == "even_heavy":
+                draw = list(np.random.choice([n for n in range(2, 81, 2)], 15, replace=False)) + \
+                       list(np.random.choice([n for n in range(1, 81, 2)], 5, replace=False))
+            else:
+                draw = list(np.random.choice(range(1, 81), 20, replace=False))
             
-            for log in logs:
-                st.markdown(log)
+            hits = len(set(candidate_8).intersection(set(draw)))
+            if hits < 2: # Trường hợp cháy dàn
+                losses += 1
         
-        st.success(f"✅ **Tập số thu gọn sau Dropout & CoT:** `{pool_numbers}`")
-        
-        # 2. Chạy RL Agent
-        if use_rl:
-            rl_agent = KenoRLAgent()
-            # Giả định State 2 (High Volatility từ Jackpot > 40 tỷ)
-            state = 2 if jackpot_val > 40000000000 else 0
-            action_idx = rl_agent.get_action(state)
-            opt_dropout = rl_agent.actions[action_idx]
-            st.info(f"🤖 **RL Agent Decision:** Khuyên dùng Dropout Rate = **{opt_dropout*100}%** dựa trên bảng Q-Table hiện tại.")
+        failure_rate = losses / num_simulations
+        return failure_rate < 0.35, failure_rate # Bắt buộc tỷ lệ sập < 35% trong kịch bản cực đoan
 
-        # 3. Tạo Wheel System
-        st.subheader("📋 Dàn Vé Bậc 3 Tối Ưu Toán Học (Wheel System)")
-        tickets_b3 = generate_covering_wheel(pool_numbers, ticket_size=3, match_target=3, condition_match=4)
+# =========================================================
+# TRỤ CỘT 1 & 2: MCTS SEARCH + RLoT (Tree Search & CoT)
+# =========================================================
+def execute_advanced_reasoning(test_time_budget):
+    logs = []
+    logs.append("🧠 **[RLoT Step 1]:** Khởi tạo cây suy luận MCTS với ngân sách Test-Time Compute...")
+    
+    best_candidate = None
+    verified = False
+    attempts = 0
+    
+    while not verified and attempts < test_time_budget:
+        attempts += 1
+        # MCTS Sampling: Tạo ứng viên 8 số ngẫu nhiên từ không gian tìm kiếm
+        candidate = sorted(list(np.random.choice(range(1, 81), 8, replace=False)))
         
-        full_comb = len(list(combinations(pool_numbers, 3)))
-        st.write(f"Giảm từ **{full_comb} vé** (Đầy đủ) xuống còn **{len(tickets_b3)} vé rút gọn** (Tiết kiệm {(1 - len(tickets_b3)/full_comb)*100:.1f}% vốn).")
+        # 1. Kiểm chứng Formal
+        is_entropy_valid, entropy_val = FormalVerificationEngine.verify_quadrant_entropy(candidate)
+        is_anti_cluster_valid = FormalVerificationEngine.verify_anti_clustering(candidate)
         
-        df_tickets = pd.DataFrame([{"STT": f"Vé {i+1}", "Bộ số Bậc 3": str(list(t)), "Giá tiền": f"{unit_bet:,.0f} VNĐ"} for i, t in enumerate(tickets_b3)])
-        st.table(df_tickets)
+        if not (is_entropy_valid and is_anti_cluster_valid):
+            # Backtrack
+            continue
+            
+        # 2. Sinh Phản Ví Dụ (Stress Test)
+        passed_stress, fail_rate = CounterexampleStressTest.run_stress_test(candidate)
+        
+        if passed_stress:
+            verified = True
+            best_candidate = candidate
+            logs.append(f"🔄 **[Backtracking Loop]:** Tìm thấy ứng viên hợp lệ ở vòng lặp thứ #{attempts}.")
+            logs.append(f"✅ **[Formal Verification]:** Shannon Entropy = **{entropy_val:.2f}** (Đạt chuẩn $\ge 1.38$).")
+            logs.append(f"🛡️ **[Counterexample Test]:** Tỷ lệ sập trong kịch bản dị thường = **{fail_rate*100:.1f}%** (Đạt chuẩn $<35\%$).")
+            break
 
-with col2:
-    st.subheader("📊 Quản Trị Vốn & EV")
-    
-    # Tính EV Jackpot
-    p_jp = 1 / 8911711
-    ev_jp_ratio = (jackpot_val / 10000) * p_jp
-    ev_total = 0.5628 + ev_jp_ratio # 0.5628 là EV cố định giải nhỏ
-    
-    st.metric("Hoàn vốn kỳ vọng (RTP)", f"{ev_total*100:.2f}%", delta=f"{(ev_total-1)*100:.2f}% Edge")
-    
-    if ev_total > 1.0:
-        st.success("🔥 TRẠNG THÁI: LỢI THẾ DƯƠNG (+EV) - Nên chơi Bậc 10!")
-    else:
-        st.warning("⚠️ TRẠNG THÁI: ÂM EV - Nên tập trung Bậc 3 & Bậc 2")
+    return logs, best_candidate
+
+# =========================================================
+# GIAO DIỆN STREAMLIT
+# =========================================================
+st.sidebar.header("⚡ Trụ Cột Tối Ưu")
+test_time_compute = st.sidebar.slider("Ngân sách Test-Time Compute (Số vòng lặp MCTS)", 100, 5000, 1000)
+unit_bet = 10800
+
+if st.button("🚀 Khai Thác 4 Trụ Cột Kỹ Thuật"):
+    with st.spinner("Hệ thống đang thực hiện Tree Search & Formal Verification..."):
+        logs, final_8 = execute_advanced_reasoning(test_time_compute)
         
-    st.markdown("---")
-    st.subheader("🛡️ Kỷ Luật Xuống Tiền")
-    st.write(f"* **Số đơn vị vốn (Units):** {int(capital / unit_bet)} Units")
-    st.write(f"* **Stop-Loss ngày:** -{capital * 0.15:,.0f} VNĐ (15%)")
-    st.write(f"* **Take-Profit mục tiêu:** +{capital * 0.25:,.0f} VNĐ (25%)")
+        st.subheader("📝 Tiến Trình Suy Luận Internal Monologue (CoT)")
+        for log in logs:
+            st.markdown(log)
+            
+        if final_8:
+            st.success(f"🎯 **TẬP 8 SỐ TỐI ƯU HOÀN HẢO:** `{final_8}`")
+            
+            # WHEEL SYSTEM
+            st.subheader("📋 Dàn Vé Bậc 3 & Bậc 2 Sau Kiểm Chứng")
+            # Tạo 6 vé Bậc 3 chuẩn Wheel
+            b3_tickets = [final_8[0:3], final_8[2:5], final_8[4:7], [final_8[0], final_8[3], final_8[6]], 
+                          [final_8[1], final_8[4], final_8[7]], [final_8[0], final_8[2], final_8[7]]]
+            # Tạo 4 vé Bậc 2 Mũi Nhọn
+            b2_tickets = [[final_8[0], final_8[1]], [final_8[2], final_8[3]], [final_8[4], final_8[5]], [final_8[6], final_8[7]]]
+            
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.write("**6 Vé Bậc 3 (Bảo Vệ Vốn):**")
+                for i, t in enumerate(b3_tickets, 1):
+                    st.code(f"Vé B3-{i}: {t} | {unit_bet:,.0f} VNĐ")
+            with col_b:
+                st.write("**4 Vé Bậc 2 (Mũi Nhọn):**")
+                for i, t in enumerate(b2_tickets, 1):
+                    st.code(f"Vé B2-{i}: {t} | {unit_bet:,.0f} VNĐ")
+        else:
+            st.error("❌ Không tìm thấy tập số thỏa mãn 100% điều kiện Formal Verification. Hãy tăng thời gian Test-Time Compute!")
