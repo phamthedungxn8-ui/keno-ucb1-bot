@@ -1,230 +1,293 @@
-import streamlit as st
 import numpy as np
 import pandas as pd
-import math
 
-st.set_page_config(page_title="Keno Reasoning Engine v2.1", page_icon="🧮", layout="wide")
 
-st.title("🧮 Integrated Keno Engine (Custom Input + MCTS + Formal Verification)")
-st.caption("Hệ thống kiểm chứng dàn số tùy chọn & Tự động khai thác 4 trụ cột kỹ thuật")
+class BCSMKenoEngine:
+    """BCSM (Biometric-Contextual State Mapping) Engine for Keno Capital Management.
 
-# =========================================================
-# 1. BỘ XỬ LÝ DỮ LIỆU LỊCH SỬ & TRỌNG SỐ THỜI GIAN
-# =========================================================
-def calculate_decay_weights(history_draws, decay_factor=0.95):
-    """Tính trọng số Exponential Decay cho 80 số dựa trên lịch sử"""
-    num_draws = len(history_draws)
-    weights = np.zeros(80)
-    
-    for idx, draw in enumerate(history_draws):
-        time_weight = math.pow(decay_factor, num_draws - 1 - idx)
-        for num in draw:
-            if 1 <= num <= 80:
-                weights[num - 1] += time_weight
-                
-    if weights.sum() > 0:
-        probs = weights / weights.sum()
-    else:
-        probs = np.ones(80) / 80.0
-    return probs
+    Integrates 3-Axis Architecture:
+    - Axis 1: Capital State Vector 6-D, Shannon Entropy & Dynamic Position
+    Sizing (Kelly-Entropy).
+    - Axis 2: Payoff Matrix & Minimax Variance Minimization.
+    - Axis 3: Markov Chain Regime Switching Detection.
+    """
 
-# =========================================================
-# 2. TRỤ CỘT 3: FORMAL VERIFICATION SYSTEM
-# =========================================================
-class FormalVerificationEngine:
-    @staticmethod
-    def verify_quadrant_entropy(candidate_8):
-        quads = [(n - 1) // 20 for n in candidate_8]
-        counts = [quads.count(i) for i in range(4)]
-        probs = [c / 8.0 for c in counts if c > 0]
-        entropy = -sum(p * math.log2(p) for p in probs)
-        return entropy >= 1.38, entropy
+    def __init__(self, initial_capital: float = 10000000.0, gamma: float = 0.15):
+        """Khởi tạo Engine với Vốn ban đầu V0 và Hệ số an toàn Gamma (Fractional
 
-    @staticmethod
-    def verify_anti_clustering(candidate_8):
-        psychological_nums = [n for n in candidate_8 if n <= 31]
-        return len(psychological_nums) <= 5
+        Kelly).
+        """
+        self.V0 = initial_capital
+        self.Vt = initial_capital
+        self.gamma = gamma
 
-# =========================================================
-# 3. TRỤ CỘT 4: COUNTEREXAMPLE STRESS TEST
-# =========================================================
-class CounterexampleStressTest:
-    @staticmethod
-    def run_stress_test(candidate_8, num_simulations=1000):
-        failures = 0
-        for _ in range(num_simulations):
-            bias = np.random.choice(["even_heavy", "odd_heavy", "random"])
-            if bias == "even_heavy":
-                draw = list(np.random.choice(range(2, 81, 2), 15, replace=False)) + \
-                       list(np.random.choice(range(1, 81, 2), 5, replace=False))
-            elif bias == "odd_heavy":
-                draw = list(np.random.choice(range(1, 81, 2), 15, replace=False)) + \
-                       list(np.random.choice(range(2, 81, 2), 5, replace=False))
-            else:
-                draw = list(np.random.choice(range(1, 81), 20, replace=False))
-            
-            hits = len(set(candidate_8).intersection(set(draw)))
-            if hits < 2:
-                failures += 1
-        
-        failure_rate = failures / num_simulations
-        return failure_rate < 0.35, failure_rate
+        # Vector Trạng thái 6-Chiều: |b1 b2 b3 b4 b5 b6>
+        # b1: Capital Reserve Rate (Vt >= 0.8 * V0)
+        # b2: Maximum Drawdown Boundary (MDD <= 15%)
+        # b3: Execution Discipline (1: Tuân thủ, 0: Lỗi cược)
+        # b4: Regime Exposure (1: <= 2% Position, 0: Clear Position)
+        # b5: Profit Lock-in / Stop-loss Check
+        # b6: Circuit Breaker Adaptability (1: Active, 0: HALT)
+        self.bit_vector = [1, 1, 1, 1, 1, 1]
+        self.capital_history = [initial_capital]
+        self.peak_capital = initial_capital
 
-# =========================================================
-# 4. ENGINE SUY LUẬN TỰ ĐỘNG (MCTS)
-# =========================================================
-def execute_mcts_reasoning(history_draws, test_time_budget, decay_factor):
-    logs = []
-    if history_draws:
-        probs = calculate_decay_weights(history_draws, decay_factor)
-        logs.append(f"📊 **[Data Engine]:** Đã nạp **{len(history_draws)} kỳ**. Đã tính toán trọng số Exponential Decay ($\lambda={decay_factor}$).")
-    else:
-        probs = np.ones(80) / 80.0
-        logs.append("⚠️ **[Data Engine]:** Chưa có dữ liệu lịch sử. Sử dụng phân bố đều (Uniform Prior).")
+    def calculate_shannon_entropy(self, window_size: int = 10) -> float:
+        """Trục 1: Tính toán Shannon Entropy dòng vốn (S_capital) trên cửa sổ mẫu N
 
-    logs.append("🧠 **[MCTS Engine]:** Bắt đầu duyệt cây với xác suất trọng số...")
-    
-    best_candidate = None
-    verified = False
-    attempts = 0
-    
-    while not verified and attempts < test_time_budget:
-        attempts += 1
-        candidate_idx = np.random.choice(range(1, 81), size=8, replace=False, p=probs)
-        candidate = sorted([int(x) for x in candidate_idx])
-        
-        is_entropy_valid, entropy_val = FormalVerificationEngine.verify_quadrant_entropy(candidate)
-        is_anti_cluster_valid = FormalVerificationEngine.verify_anti_clustering(candidate)
-        
-        if not (is_entropy_valid and is_anti_cluster_valid):
-            continue
-            
-        passed_stress, fail_rate = CounterexampleStressTest.run_stress_test(candidate)
-        
-        if passed_stress:
-            verified = True
-            best_candidate = candidate
-            logs.append(f"🔄 **[Backtrack Loop]:** Tìm thấy ứng viên vượt qua kiểm chứng tại vòng lặp **#{attempts}**.")
-            logs.append(f"✅ **[Formal Verification]:** Shannon Entropy = **{entropy_val:.2f}** (Đạt chuẩn $\ge 1.38$).")
-            logs.append(f"🛡️ **[Stress Test]:** Tỷ lệ sập dàn = **{fail_rate*100:.1f}%** (Đạt chuẩn $<35\%$).")
-            break
+        kỳ gần nhất.
 
-    return logs, best_candidate
+        Entropy S -> 0: Dòng vốn ổn định. Entropy S -> 1: Dòng vốn hỗn loạn.
+        """
+        if len(self.capital_history) <= window_size:
+            return 0.0
 
-# =========================================================
-# GIAO DIỆN STREAMLIT
-# =========================================================
-st.sidebar.header("⚙️ Cấu Hình Thuật Toán")
-mode = st.sidebar.radio("Nguồn tạo tập 8 số:", ["Tự chọn / Nhập thủ công", "MCTS Search Tự Động"])
-test_time_compute = st.sidebar.slider("Ngân sách Test-Time Compute (MCTS)", 100, 5000, 1000, step=100)
-decay_factor = st.sidebar.slider("Hệ số suy giảm thời gian (Decay Lambda)", 0.80, 0.99, 0.95, step=0.01)
+        recent_history = self.capital_history[-window_size:]
+        returns = np.diff(recent_history) / recent_history[:-1]
 
-if "history" not in st.session_state:
-    st.session_state.history = []
+        if np.all(returns == 0):
+            return 0.0
 
-# GIAO DIỆN DÀNH CHO CHẾ ĐỘ NHẬP THỦ CÔNG
-if mode == "Tự chọn / Nhập thủ công":
-    st.subheader("📌 1. Nhập Trực Tiếp Dàn 8 Số Đã Phân Tích")
-    manual_input = st.text_input(
-        "Nhập 8 số phân cách bằng dấu phẩy hoặc khoảng trắng:",
-        value="03, 05, 10, 31, 35, 37, 64, 66"
-    )
+        # Chia phân phối tỷ suất lợi nhuận vào 5 nhóm (bins)
+        hist, _ = np.histogram(returns, bins=5)
+        probs = hist / np.sum(hist)
+        probs = probs[probs > 0]  # Lọc xác suất bằng 0 để tránh log2(0)
 
-# GIAO DIỆN DÀNH CHO CHẾ ĐỘ NẠP LỊCH SỬ TỰ ĐỘNG
-else:
-    st.subheader("📥 1. Nạp Dữ Liệu Kết Quả Lịch Sử")
-    raw_input = st.text_area(
-        "Dán kết quả các kỳ gần nhất (Mỗi kỳ 1 dòng 20 số):",
-        placeholder="01 05 12 18 27 33 41 52 ...\n03 08 15 22 29 34 45 60 ...",
-        height=100
-    )
+        entropy = -np.sum(probs * np.log2(probs))
+        # Standardize Entropy về đoạn [0.0, 1.0]
+        max_entropy = np.log2(5)
+        normalized_entropy = min(max(entropy / max_entropy, 0.0), 1.0)
+        return float(normalized_entropy)
 
-    if st.button("💾 Nạp Dữ Liệu"):
-        if raw_input.strip():
-            lines = raw_input.strip().split("\n")
-            new_draws = []
-            for line in lines:
-                nums = [int(s) for s in line.replace(",", " ").split() if s.isdigit()]
-                if len(nums) == 20:
-                    new_draws.append(nums)
-            
-            st.session_state.history.extend(new_draws)
-            st.session_state.history = st.session_state.history[-100:]
-            st.success(f"✅ Đã nạp thành công {len(new_draws)} kỳ quay. Tổng dữ liệu hiện tại: {len(st.session_state.history)} kỳ.")
+    def detect_markov_regime(self, recent_outcomes: list) -> str:
+        """Trục 3: Mô hình hóa Chuỗi Markov về Trạng thái Không gian (Regime
 
-st.markdown("---")
-st.subheader("🚀 2. Kiểm Chứng & Xuất Dàn Vé")
+        Switching).
 
-if st.button("🎯 Kiểm Chứng & Tách Dàn Vé", type="primary"):
-    logs = []
-    final_8 = None
-    
-    if mode == "Tự chọn / Nhập thủ công":
-        # Parsing dàn 8 số thủ công
-        candidate_nums = [int(s) for s in manual_input.replace(",", " ").split() if s.isdigit()]
-        candidate_nums = sorted(list(set(candidate_nums)))
-        
-        if len(candidate_nums) != 8:
-            st.error(f"❌ Vui lòng nhập đúng 8 số không trùng lặp! (Hiện tại phát hiện {len(candidate_nums)} số).")
+        - S1: Over-represented (Lệch Dương)
+        - S2: Under-represented (Lệch Âm)
+        - S3: Equilibrium (Cân bằng / Hòa)
+        """
+        if not recent_outcomes or len(recent_outcomes) < 5:
+            return 'S3'  # Mặc định Cân bằng nếu thiếu dữ liệu
+
+        positive_count = sum(1 for x in recent_outcomes[-10:] if x > 0)
+        ratio = positive_count / len(recent_outcomes[-10:])
+
+        if ratio >= 0.65:
+            return 'S1'  # Trend thắng ngắn hạn
+        elif ratio <= 0.35:
+            return 'S2'  # Trend thua ngắn hạn
         else:
-            logs.append(f"📥 **[Input Engine]:** Nhận dàn 8 số thủ công: `{candidate_nums}`")
-            
-            # Chạy Formal Verification
-            is_entropy_valid, entropy_val = FormalVerificationEngine.verify_quadrant_entropy(candidate_nums)
-            is_anti_cluster_valid = FormalVerificationEngine.verify_anti_clustering(candidate_nums)
-            
-            logs.append(f"🔍 **[Formal Verification]:** Shannon Entropy = **{entropy_val:.2f}** {'✅' if is_entropy_valid else '⚠️ (Khuyên dùng >= 1.38)'}")
-            
-            # Chạy Stress Test
-            passed_stress, fail_rate = CounterexampleStressTest.run_stress_test(candidate_nums)
-            logs.append(f"🛡️ **[Stress Test]:** Tỷ lệ sập dàn = **{fail_rate*100:.1f}%** {'✅ (Đạt chuẩn <35%)' if passed_stress else '⚠️ (Rủi ro cao)'}")
-            
-            final_8 = candidate_nums
+            return 'S3'  # Cân bằng
 
-    else:
-        # Chạy MCTS tự động
-        with st.spinner("Đang thực hiện MCTS Search & Kiểm chứng Formal..."):
-            logs, final_8 = execute_mcts_reasoning(
-                st.session_state.history, 
-                test_time_compute, 
-                decay_factor
-            )
+    def select_payoff_target(self, regime: str) -> dict:
+        """Trục 2: Tối ưu Payoff Matrix & Minimax Variance dựa trên Trạng thái
 
-    # Hiển thị tiến trình suy luận
-    st.write("📝 **Tiến Trình Suy Luận Internal Monologue:**")
-    for log in logs:
-        st.markdown(log)
-        
-    # Xuất kết quả dàn vé
-    if final_8:
-        clean_8 = [int(x) for x in final_8]
-        st.markdown("---")
-        st.success(f"🎯 **TẬP 8 SỐ TỔI ƯU:** `{clean_8}`")
-        
-        # Chia dàn vé Wheel System
-        b3_tickets = [
-            [clean_8[0], clean_8[1], clean_8[2]],
-            [clean_8[2], clean_8[3], clean_8[4]],
-            [clean_8[4], clean_8[5], clean_8[6]],
-            [clean_8[0], clean_8[3], clean_8[6]],
-            [clean_8[1], clean_8[4], clean_8[7]],
-            [clean_8[0], clean_8[2], clean_8[7]]
-        ]
-        
-        b2_tickets = [
-            [clean_8[0], clean_8[1]],
-            [clean_8[2], clean_8[3]],
-            [clean_8[4], clean_8[5]],
-            [clean_8[6], clean_8[7]]
-        ]
-        
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.markdown("**6 Vé Bậc 3 (Bảo Vệ Vốn):**")
-            for i, t in enumerate(b3_tickets, 1):
-                st.code(f"Vé B3-{i}: {t} | 10,000 VNĐ")
-                
-        with col_b:
-            st.markdown("**4 Vé Bậc 2 (Mũi Nhọn):**")
-            for i, t in enumerate(b2_tickets, 1):
-                st.code(f"Vé B2-{i}: {t} | 10,000 VNĐ")
+        Regime.
+        """
+        if regime == 'S2' or self.bit_vector[0] == 0:
+            # Vùng S1 (Defensive): Keno Bậc 2 hoặc Chẵn/Lẻ (Variance cực thấp để bảo vệ vốn)
+            return {'type': 'Keno_Level_2', 'p_win': 0.1739, 'odds': 6.0}
+        elif regime == 'S1' and self.bit_vector[4] == 1:
+            # Vùng S2 (Aggressive): Keno Bậc 4 (Tận dụng Profit Buffer khi b5=1)
+            return {'type': 'Keno_Level_4', 'p_win': 0.0264, 'odds': 100.0}
+        else:
+            # Vùng Tiêu chuẩn
+            return {'type': 'Keno_Level_2', 'p_win': 0.1739, 'odds': 6.0}
+
+    def update_state_vector(self, execution_error: bool = False) -> bool:
+        """Cập nhật Vector Trạng thái 6-D & Kiểm tra Cảnh báo Điểm gẫy (Bifurcation
+
+        Warning).
+
+        Return: True nếu kích hoạt CIRCUIT BREAKER, ngược lại False.
+        """
+        # Cập nhật Peak Capital & Current MDD
+        if self.Vt > self.peak_capital:
+            self.peak_capital = self.Vt
+        current_mdd = (self.peak_capital - self.Vt) / self.peak_capital
+
+        # Bit b1: Capital Reserve Rate (Vt >= 80% V0)
+        self.bit_vector[0] = 1 if self.Vt >= 0.8 * self.V0 else 0
+
+        # Bit b2: Maximum Drawdown Boundary (MDD <= 15%)
+        self.bit_vector[1] = 1 if current_mdd <= 0.15 else 0
+
+        # Bit b3: Execution Discipline
+        self.bit_vector[2] = 0 if execution_error else 1
+
+        # Bit b5: Profit Lock-in / Stop Loss Check
+        # Khóa nếu sụt giảm quá 30% từ đỉnh hoặc mất sạch lãi
+        self.bit_vector[4] = 1 if current_mdd <= 0.20 else 0
+
+        # CẢNH BÁO ĐIỂM GẪY: Bifurcation Risk = ~b2 AND ~b3 (Mất kỷ luật VÀ Vốn giảm sâu)
+        bifurcation_risk = (self.bit_vector[1] == 0) and (
+            self.bit_vector[2] == 0
+        )
+
+        if bifurcation_risk or current_mdd >= 0.25:
+            # KÍCH HOẠT CẦU CHÌ HỆ THỐNG
+            self.bit_vector[3] = 0  # b4 -> 0: Thu vị thế cược về 0
+            self.bit_vector[5] = 0  # b6 -> 0: CIRCUIT BREAKER HALT
+            return True
+
+        self.bit_vector[3] = 1
+        self.bit_vector[5] = 1
+        return False
+
+    def compute_position_size(self, p: float, odds: float, S_cap: float) -> float:
+        """Tính toán Quy mô Vị thế Tối ưu f* (Kelly - Entropy Adjusted).
+
+        f* = [(p * b - q) / b] * (1 - S_capital) * gamma
+        """
+        # Nếu Circuit Breaker ngắt (b6 = 0) hoặc Bit b4 = 0 -> Khóa cược
+        if self.bit_vector[5] == 0 or self.bit_vector[3] == 0:
+            return 0.0
+
+        b = odds - 1.0  # Net odds
+        q = 1.0 - p
+
+        kelly_f = (p * b - q) / b
+
+        # Nếu Kelly ra kết quả âm (EV < 0 tiêu chuẩn), thiết lập baseline tối thiểu an toàn để duy trì chuỗi
+        if kelly_f <= 0:
+            kelly_f = 0.01  # Baseline Risk Factor
+
+        # Công thức BCSM: Chiết khấu vị thế theo Shannon Entropy dòng vốn
+        f_star = kelly_f * (1.0 - S_cap) * self.gamma
+
+        # Giới hạn cứng: Không cược quá 2% vốn/kỳ
+        return float(min(max(f_star, 0.0), 0.02))
+
+    def process_cycle(
+        self,
+        last_outcome: float = 0.0,
+        recent_history_outcomes: list = None,
+        execution_error: bool = False,
+    ) -> dict:
+        """Quy trình Vận hành Chuẩn (SOP) cho mỗi kỳ quay t+1."""
+        # 1. Cập nhật Số dư dòng vốn từ kết quả kỳ t
+        self.Vt += last_outcome
+        self.capital_history.append(self.Vt)
+
+        # 2. Cập nhật Trạng thái Vector Bit & Kiểm tra Cầu chì
+        is_halted = self.update_state_vector(execution_error)
+        if is_halted:
+            return {
+                'action': 'CIRCUIT_BREAKER_HALT',
+                'state_vector': self.bit_vector,
+                'bet_amount': 0.0,
+                'f_star': 0.0,
+                'status': 'Dừng giao dịch khẩn cấp để bảo vệ vốn.',
+            }
+
+        # 3. Trục 1: Tính Shannon Entropy
+        S_cap = self.calculate_shannon_entropy()
+
+        # 4. Trục 3: Đo lường Chuỗi Markov
+        regime = self.detect_markov_regime(recent_history_outcomes or [])
+
+        # 5. Trục 2: Chọn Vùng cược
+        payoff = self.select_payoff_target(regime)
+
+        # 6. Tính toán Size Vị thế cược
+        f_star = self.compute_position_size(
+            payoff['p_win'], payoff['odds'], S_cap
+        )
+        bet_amount = self.Vt * f_star
+
+        return {
+            'action': 'EXECUTE_BET',
+            'state_vector': f'|{" ".join(map(str, self.bit_vector))}>',
+            'regime': regime,
+            'target_game': payoff['type'],
+            'shannon_entropy': round(S_cap, 4),
+            'f_star_pct': f'{round(f_star * 100, 2)}%',
+            'bet_amount': round(bet_amount, 2),
+            'current_capital': round(self.Vt, 2),
+        }
+
+
+# =====================================================================
+# BỘ MÔ PHỎNG MONTE CARLO KIỂM CHỨNG TỶ LỆ TỒN TẠI (SURVIVAL RATE)
+# =====================================================================
+
+
+def run_monte_carlo_validation(n_simulations: int = 500, n_rounds: int = 1000):
+    """Chạy mô phỏng Monte Carlo so sánh Strategy A (Fixed 2%) vs Strategy B
+
+    (BCSM Engine).
+    """
+    initial_cap = 10000000.0
+    p_win_k2 = 0.1739
+    odds_k2 = 6.0
+
+    survived_fixed = 0
+    survived_bcsm = 0
+
+    print(
+        f'=== KÍCH HOẠT MÔ PHỎNG MONTE CARLO ({n_simulations} Simulations x'
+        f' {n_rounds} Rounds) ===\n'
+    )
+
+    for sim in range(n_simulations):
+        cap_a = initial_cap
+        engine_b = BCSMKenoEngine(initial_capital=initial_cap)
+
+        outcomes_history = []
+
+        for r in range(n_rounds):
+            win = np.random.rand() < p_win_k2
+            outcome_val = 1.0 if win else -1.0
+            outcomes_history.append(outcome_val)
+
+            # --- STRATEGY A (Fixed 2% Allocation) ---
+            if cap_a > 0:
+                bet_a = cap_a * 0.02
+                cap_a = cap_a + (bet_a * (odds_k2 - 1)) if win else cap_a - bet_a
+
+            # --- STRATEGY B (BCSM Engine) ---
+            if engine_b.Vt > 0:
+                # Lấy quyết định từ Engine
+                decision = engine_b.process_cycle(
+                    last_outcome=0.0, recent_history_outcomes=outcomes_history
+                )
+                bet_b = decision['bet_amount']
+
+                if bet_b > 0:
+                    delta_capital = (
+                        (bet_b * (odds_k2 - 1)) if win else -bet_b
+                    )
+                    engine_b.Vt += delta_capital
+                    engine_b.capital_history.append(engine_b.Vt)
+
+        # Tiêu chí Tồn tại: Giữ được ít nhất 20% vốn ban đầu sau 1,000 kỳ
+        if cap_a >= initial_cap * 0.20:
+            survived_fixed += 1
+        if engine_b.Vt >= initial_cap * 0.20:
+            survived_bcsm += 1
+
+    rate_a = (survived_fixed / n_simulations) * 100
+    rate_b = (survived_bcsm / n_simulations) * 100
+
+    print('=== KẾT QUẢ MÔ PHỎNG MONTE CARLO ===')
+    print(f'Strategy A (Fixed 2% Capital Allocation) Survival Rate : {rate_a:.2f}%')
+    print(f'Strategy B (BCSM Engine Dynamic Sizing) Survival Rate  : {rate_b:.2f}%')
+    print('=====================================================\n')
+
+
+# Execute Test Run
+if __name__ == '__main__':
+    # 1. Chạy thử nghiệm 1 chu kỳ vận hành Engine
+    engine = BCSMKenoEngine(initial_capital=10000000.0)
+    sample_decision = engine.process_cycle(
+        last_outcome=0.0, recent_history_outcomes=[1, -1, -1, 1, -1]
+    )
+    print('Quyết định Mẫu từ BCSM Engine:')
+    for k, v in sample_decision.items():
+        print(f'  {k}: {v}')
+    print('\n' + '=' * 50 + '\n')
+
+    # 2. Chạy Mô phỏng Monte Carlo
+    run_monte_carlo_validation(n_simulations=200, n_rounds=500)
