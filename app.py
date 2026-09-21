@@ -2,17 +2,12 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-# -----------------------------------------------------------------------------
-# STREAMLIT CONFIGURATION
-# -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="BCSM Keno System Engine", page_icon="⚡", layout="wide"
 )
 
 
-# -----------------------------------------------------------------------------
-# CORE ENGINE CLASS
-# -----------------------------------------------------------------------------
+# --- CORE ENGINE CLASS ---
 class BCSMKenoEngine:
 
     def __init__(self, initial_capital: float = 10000000.0, gamma: float = 0.15):
@@ -26,41 +21,33 @@ class BCSMKenoEngine:
     def calculate_shannon_entropy(self, window_size: int = 10) -> float:
         if len(self.capital_history) <= window_size:
             return 0.0
-
         recent_history = self.capital_history[-window_size:]
-        returns = np.diff(recent_history) / recent_history[:-1]
-
+        returns = np.diff(recent_history) / (recent_history[:-1] + 1e-9)
         if np.all(returns == 0):
             return 0.0
-
         hist, _ = np.histogram(returns, bins=5)
         probs = hist / np.sum(hist)
         probs = probs[probs > 0]
-
         entropy = -np.sum(probs * np.log2(probs))
-        max_entropy = np.log2(5)
-        return float(min(max(entropy / max_entropy, 0.0), 1.0))
+        return float(min(max(entropy / np.log2(5), 0.0), 1.0))
 
     def detect_markov_regime(self, recent_outcomes: list) -> str:
         if not recent_outcomes or len(recent_outcomes) < 5:
             return "S3"
         positive_count = sum(1 for x in recent_outcomes[-10:] if x > 0)
         ratio = positive_count / len(recent_outcomes[-10:])
-
         if ratio >= 0.65:
             return "S1"
         elif ratio <= 0.35:
             return "S2"
-        else:
-            return "S3"
+        return "S3"
 
     def select_payoff_target(self, regime: str) -> dict:
         if regime == "S2" or self.bit_vector[0] == 0:
-            return {"type": "Keno_Level_2", "p_win": 0.1739, "odds": 6.0}
+            return {"type": "Keno Bậc 2 / Chẵn Lẻ", "p_win": 0.1739, "odds": 6.0}
         elif regime == "S1" and self.bit_vector[4] == 1:
-            return {"type": "Keno_Level_4", "p_win": 0.0264, "odds": 100.0}
-        else:
-            return {"type": "Keno_Level_2", "p_win": 0.1739, "odds": 6.0}
+            return {"type": "Keno Bậc 4", "p_win": 0.0264, "odds": 100.0}
+        return {"type": "Keno Bậc 2", "p_win": 0.1739, "odds": 6.0}
 
     def update_state_vector(self, execution_error: bool = False) -> bool:
         if self.Vt > self.peak_capital:
@@ -79,7 +66,6 @@ class BCSMKenoEngine:
         bifurcation_risk = (self.bit_vector[1] == 0) and (
             self.bit_vector[2] == 0
         )
-
         if bifurcation_risk or current_mdd >= 0.25:
             self.bit_vector[3] = 0
             self.bit_vector[5] = 0
@@ -94,14 +80,11 @@ class BCSMKenoEngine:
     ) -> float:
         if self.bit_vector[5] == 0 or self.bit_vector[3] == 0:
             return 0.0
-
         b = odds - 1.0
         q = 1.0 - p
         kelly_f = (p * b - q) / b
-
         if kelly_f <= 0:
             kelly_f = 0.01
-
         f_star = kelly_f * (1.0 - S_cap) * self.gamma
         return float(min(max(f_star, 0.0), 0.02))
 
@@ -146,83 +129,100 @@ class BCSMKenoEngine:
         }
 
 
-# -----------------------------------------------------------------------------
-# STREAMLIT UI INTERFACE
-# -----------------------------------------------------------------------------
-st.title("⚡ BCSM Keno System Physics Engine")
-st.markdown(
-    "**Khung Quản trị Trạng thái Vốn & Entropy Dòng tiền** dựa trên Hệ thống Phức hợp."
-)
+# --- UI INTERFACE ---
+st.title("⚡ BCSM Keno System Engine")
 
-# Sidebar Control Panel
-st.sidebar.header("⚙️ Tham số Đầu vào (Input)")
+# Sidebar
+st.sidebar.header("⚙️ Thiết lập Hệ thống")
 initial_cap = st.sidebar.number_input(
-    "Vốn Ban Đầu (V0)", value=10000000, step=1000000
+    "Vốn Ban Đầu V0 (VNĐ)", value=10000000, step=1000000
 )
-gamma_val = st.sidebar.slider("Hệ số An toàn Gamma (Kelly)", 0.05, 0.50, 0.15)
-n_sim_rounds = st.sidebar.slider("Số kỳ mô phỏng (Rounds)", 50, 500, 100)
+gamma_val = st.sidebar.slider("Hệ số An toàn Gamma", 0.05, 0.50, 0.15)
 
-run_sim_button = st.sidebar.button("🚀 Kích hoạt Mô phỏng")
-
-# Session State Initialization
-if "engine" not in st.session_state:
-    st.session_state.engine = BCSMKenoEngine(
+if "live_engine" not in st.session_state:
+    st.session_state.live_engine = BCSMKenoEngine(
         initial_capital=initial_cap, gamma=gamma_val
     )
+if "live_history" not in st.session_state:
+    st.session_state.live_history = []
 
-# Real-time Metrics Dashboard
-col1, col2, col3, col4 = st.columns(4)
-current_cap = st.session_state.engine.Vt
-entropy_val = st.session_state.engine.calculate_shannon_entropy()
+# Tabs Navigation
+tab1, tab2 = st.tabs(["🎯 Chế độ Thực Chiến (Live Mode)", "📊 Chế độ Mô Phỏng (Monte Carlo)"])
 
-col1.metric("Vốn Hiện Tại (Vt)", f"{current_cap:,.0f} VNĐ")
-col2.metric("Shannon Entropy (S)", f"{entropy_val:.4f}")
-col3.metric(
-    "State Vector",
-    f'|{" ".join(map(str, st.session_state.engine.bit_vector))}>',
-)
-col4.metric(
-    "Trạng thái Hệ thống",
-    (
-        "RUNNING"
-        if st.session_state.engine.bit_vector[5] == 1
-        else "HALTED (Cầu chì)"
-    ),
-)
+# TAB 1: LIVE MODE
+with tab1:
+    st.subheader("Trợ lý Quản trị Vốn Thời gian thực")
 
-st.divider()
+    engine = st.session_state.live_engine
 
-# Simulation Execution Block
-if run_sim_button:
-    st.subheader("📊 Kết quả Mô phỏng Chuỗi Kỳ quay Real-time")
+    # Metrics
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Vốn Hiện Tại", f"{engine.Vt:,.0f} VNĐ")
+    m2.metric("Shannon Entropy", f"{engine.calculate_shannon_entropy():.4f}")
+    m3.metric("State Vector", f'|{" ".join(map(str, engine.bit_vector))}>')
+    m4.metric(
+        "Trạng thái",
+        "HOẠT ĐỘNG" if engine.bit_vector[5] == 1 else "CẦU CHÌ NGẮT",
+    )
 
-    engine = BCSMKenoEngine(initial_capital=initial_cap, gamma=gamma_val)
-    outcomes = []
-    p_win = 0.1739
-    odds = 6.0
+    st.divider()
 
-    progress_bar = st.progress(0)
+    # Form nhập kết quả kỳ vừa xong
+    st.markdown("### 📥 Cập nhật Kết quả Kỳ quay vừa qua")
+    col_a, col_b = st.columns(2)
 
-    for r in range(n_sim_rounds):
-        win = np.random.rand() < p_win
-        outcome_val = 1.0 if win else -1.0
-        outcomes.append(outcome_val)
+    with col_a:
+        outcome_type = st.radio("Kết quả kỳ trước:", ["Thắng (Win)", "Thua (Loss)"])
+        profit_loss = st.number_input("Số tiền Lãi / Lỗ (+/- VNĐ)", value=0, step=10000)
+
+    with col_b:
+        exec_error = st.checkbox("Vi phạm kỷ luật (Đặt sai tiền / Cảm xúc)")
+        submit_btn = st.button("🔄 Tính toán Kỳ Tiếp Theo (t+1)")
+
+    if submit_btn:
+        actual_delta = (
+            profit_loss
+            if "Thắng" in outcome_type
+            else -abs(profit_loss)
+        )
+        st.session_state.live_history.append(1 if "Thắng" in outcome_type else -1)
 
         decision = engine.process_cycle(
-            last_outcome=0.0, recent_history_outcomes=outcomes
+            last_outcome=actual_delta,
+            recent_history_outcomes=st.session_state.live_history,
+            execution_error=exec_error,
         )
-        bet_b = decision["bet_amount"]
 
-        if bet_b > 0:
-            delta = (bet_b * (odds - 1)) if win else -bet_b
-            engine.Vt += delta
+        st.divider()
+        st.markdown("### ⚡ Lệnh Đặt Cược Kỳ Tiếp Theo (t+1)")
 
-        progress_bar.progress((r + 1) / n_sim_rounds)
+        if decision["action"] == "CIRCUIT_BREAKER_HALT":
+            st.error("🚨 CẦU CHÌ ĐÃ KÍCH HOẠT: Dừng đặt cược ngay lập tức để bảo vệ vốn!")
+        else:
+            res_col1, res_col2, res_col3 = st.columns(3)
+            res_col1.metric("Loại Cược Khuyên Dùng", decision["target_game"])
+            res_col2.metric("Tỷ lệ Vốn (% f*)", decision["f_star_pct"])
+            res_col3.metric("Số Tiền Cược Tối Ưu", f"{decision['bet_amount']:,.0f} VNĐ")
 
-    # Plot Capital Growth Chart
-    df_chart = pd.DataFrame(
-        {"Kỳ quay": range(len(engine.capital_history)), "Vốn (VNĐ)": engine.capital_history}
-    )
-    st.line_chart(df_chart, x="Kỳ quay", y="Vốn (VNĐ)")
+    # Chart
+    if len(engine.capital_history) > 1:
+        st.line_chart(pd.DataFrame({"Số dư Vốn": engine.capital_history}))
 
-    st.success(f"Mô phỏng hoàn tất! Vốn cuối cùng: {engine.Vt:,.0f} VNĐ")
+# TAB 2: MONTE CARLO SIMULATION
+with tab2:
+    st.subheader("Mô phỏng Kiểm chứng Chiến lược")
+    n_sim_rounds = st.slider("Số kỳ mô phỏng", 50, 500, 100)
+    if st.button("🚀 Kích hoạt Mô phỏng Monte Carlo"):
+        sim_engine = BCSMKenoEngine(initial_capital=initial_cap, gamma=gamma_val)
+        outcomes = []
+        for r in range(n_sim_rounds):
+            win = np.random.rand() < 0.1739
+            outcomes.append(1.0 if win else -1.0)
+            dec = sim_engine.process_cycle(
+                last_outcome=0.0, recent_history_outcomes=outcomes
+            )
+            if dec["bet_amount"] > 0:
+                sim_engine.Vt += (dec["bet_amount"] * 5) if win else -dec["bet_amount"]
+
+        st.line_chart(pd.DataFrame({"Vốn Mô Phỏng": sim_engine.capital_history}))
+        st.success(f"Kết quả sau {n_sim_rounds} kỳ: {sim_engine.Vt:,.0f} VNĐ")
