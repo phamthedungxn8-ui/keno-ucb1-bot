@@ -41,40 +41,51 @@ class QFPSAIOptimizer:
         return renyi_s
 
 
-class KenoMemoryPairEngine:
-    """Bộ trích xuất Cặp Bậc 2 dựa trên Động lực học Ký nhớ Ngắn hạn (3-5 Kỳ quay)."""
-    def __init__(self, window_size: int = 5, decay_lambda: float = 0.3):
+class KenoMemoryPairEngineOptimized:
+    """Bộ trích xuất Cặp Bậc 2 nâng cấp: Tích hợp Hàm Phạt Bão Hòa (Penalized Saturation)."""
+    def __init__(self, window_size: int = 5, decay_lambda: float = 0.25, gamma_sat: float = 3.0):
         self.W = window_size
-        self.weights = np.exp(-decay_lambda * np.arange(window_size))
+        self.weights = np.exp(-decay_lambda * np.arange(window_size))[::-1] # Ưu tiên kỳ gần nhất
+        self.gamma_sat = gamma_sat
 
     def extract_best_pair(self, history_matrix: np.ndarray, renyi_s: float) -> tuple[tuple[int, int], float, dict]:
         T, N = history_matrix.shape
         if T < self.W:
-            return (1, 2), 0.0, {"Cảnh báo": "Không đủ 5 kỳ lịch sử để phân tích"}
+            return (1, 2), 0.0, {"Cảnh báo": "Chưa đủ 5 kỳ lịch sử"}
 
-        recent = history_matrix[-self.W:]
-        m_t = np.dot(self.weights, recent)
+        recent = history_matrix[-self.W:] # Cửa sổ 5 kỳ gần nhất (5 x 80)
         
+        # 1. Tính tần suất lặp thô
+        counts = np.sum(recent, axis=0) # mảng 80 phần tử
+        
+        # 2. Phương trình 1: Ký nhớ có Phạt Bão Hòa (M_i)
+        raw_m = np.dot(self.weights, recent) # Tích chập trọng số thời gian
+        sat_penalty = 1.0 - (counts / float(self.W)) ** self.gamma_sat
+        m_t = raw_m * sat_penalty # Triệt tiêu điểm các số quá hot (về 4-5 lần)
+
+        # 3. Phương trình 2: Ma trận Tương quan Cặp C_ij
         co_occurrence = np.dot(recent.T, recent)
         deg = np.diag(co_occurrence)
         norm_factor = np.sqrt(np.outer(deg, deg)) + 1e-9
         c_t = co_occurrence / norm_factor
         np.fill_diagonal(c_t, 0.0)
 
+        # 4. Phương trình 3: Điểm Cộng hưởng QFP S_ij
         m_matrix = np.add.outer(m_t, m_t)
         np.fill_diagonal(m_matrix, 0.0)
         
+        # Kết hợp 60% năng lượng đơn + 40% tương quan cặp
         score_matrix = (0.6 * m_matrix + 0.4 * c_t) * np.exp(-renyi_s)
         
+        # Lấy Cặp có điểm cao nhất
         best_idx = np.unravel_index(np.argmax(score_matrix), score_matrix.shape)
         num1, num2 = int(best_idx[0] + 1), int(best_idx[1] + 1)
         
         stats = {
-            f"Số {num1}": f"Về {int(np.sum(recent[:, best_idx[0]]))}/{self.W} kỳ gần nhất",
-            f"Số {num2}": f"Về {int(np.sum(recent[:, best_idx[1]]))}/{self.W} kỳ gần nhất"
+            f"Số {num1}": f"Về {int(counts[best_idx[0]])}/{self.W} kỳ, Điểm M_i: {m_t[best_idx[0]]:.3f}",
+            f"Số {num2}": f"Về {int(counts[best_idx[1]])}/{self.W} kỳ, Điểm M_i: {m_t[best_idx[1]]:.3f}"
         }
         return (num1, num2), float(score_matrix[best_idx]), stats
-
 
 class BQFSMEngine:
     """Bộ Quản trị Vốn Lượng tử - Logic Mờ & Sinh trắc học (B-QFSME)."""
