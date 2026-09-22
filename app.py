@@ -4,10 +4,13 @@ import pandas as pd
 import streamlit as st
 
 # -----------------------------------------------------------------------------
-# 1. CORE ENGINES (QFPS & MEMORY RETENTION & FINANCIAL B-QFSME)
+# 1. CORE MATH & AI ENGINES
 # -----------------------------------------------------------------------------
 
 class QFPSAIOptimizer:
+    """Bộ Tối ưu hóa AI Động lực học Không gian Pha Lượng tử - Mờ (QFPS).
+    Tích hợp Xuyên hầm Lượng tử và Rényi Entropy (alpha=2) để lọc nhiễu trắng.
+    """
     def __init__(self, num_dim: int = 80, hbar: float = 0.1, gamma: float = 0.05, alpha: float = 2.0):
         self.D = num_dim
         self.hbar = hbar
@@ -41,6 +44,7 @@ class QFPSAIOptimizer:
 
 
 class KenoMemoryPairEngine:
+    """Bộ trích xuất Cặp Bậc 2 dựa trên Động lực học Ký nhớ Ngắn hạn (3-5 Kỳ quay)."""
     def __init__(self, window_size: int = 5, decay_lambda: float = 0.3):
         self.W = window_size
         self.weights = np.exp(-decay_lambda * np.arange(window_size))
@@ -48,7 +52,7 @@ class KenoMemoryPairEngine:
     def extract_best_pair(self, history_matrix: np.ndarray, renyi_s: float) -> tuple[tuple[int, int], float, dict]:
         T, N = history_matrix.shape
         if T < self.W:
-            return (1, 2), 0.0, {}
+            return (1, 2), 0.0, {"Cảnh báo": "Không đủ 5 kỳ lịch sử để phân tích"}
 
         recent = history_matrix[-self.W:]
         m_t = np.dot(self.weights, recent)
@@ -75,6 +79,7 @@ class KenoMemoryPairEngine:
 
 
 class BQFSMEngine:
+    """Bộ Quản trị Vốn Lượng tử - Logic Mờ & Sinh trắc học (B-QFSME)."""
     def __init__(self, initial_capital: float = 10000000.0, gamma: float = 0.15):
         self.V0 = initial_capital
         self.Vt = initial_capital
@@ -95,7 +100,6 @@ class BQFSMEngine:
         return self.fuzzy_vector
 
     def calculate_position_size(self, renyi_s: float, reaction_time: float, odds: float = 9.0, p_win: float = 0.0601) -> tuple[float, float, str]:
-        """Tỷ lệ thắng thực tế Keno Bậc 2: ~6.01%. Thưởng x9 vốn (10k trúng 90k)."""
         current_mdd = (self.peak_capital - self.Vt) / self.peak_capital if self.peak_capital > 0 else 0.0
         self.update_fuzzy_vector(current_mdd)
         
@@ -120,31 +124,33 @@ class BQFSMEngine:
         f_star = base_kelly * fuzzy_weight * (1.0 - renyi_s) * beta_bio * self.gamma
         f_star = float(np.clip(f_star, 0.0, 0.025))
         
-        # Làm tròn về bội số của 10.000 VNĐ (Vé Keno cơ bản)
         bet_amount = np.floor((self.Vt * f_star) / 10000.0) * 10000.0
         return f_star, bet_amount, status_msg
 
 
 # -----------------------------------------------------------------------------
-# 2. STREAMLIT INTERFACE WITH ACTUAL DRAW INPUT & FEE CALCULATION
+# 2. STREAMLIT APPLICATION INTERFACE
 # -----------------------------------------------------------------------------
 
-st.set_page_config(page_title="QFPS Keno Advanced Engine", page_icon="🎲", layout="wide")
+st.set_page_config(page_title="QFPS Keno Engine", page_icon="🎲", layout="wide")
 
-# State Initializations
+# State Initialization
 if "ai_opt" not in st.session_state:
     st.session_state.ai_opt = QFPSAIOptimizer()
 if "pair_engine" not in st.session_state:
     st.session_state.pair_engine = KenoMemoryPairEngine()
 if "bqfsm" not in st.session_state:
     st.session_state.bqfsm = BQFSMEngine()
+
+# Khởi tạo Ma trận Lịch sử 80 số
 if "history_matrix" not in st.session_state:
-    init_hist = np.zeros((10, 80))
-    for t in range(10):
+    init_hist = np.zeros((5, 80))
+    for t in range(5):
         init_hist[t, np.random.choice(80, 20, replace=False)] = 1
     st.session_state.history_matrix = init_hist
+
 if "last_pair" not in st.session_state:
-    st.session_state.last_pair = (51, 61)
+    st.session_state.last_pair = (1, 2)
 if "last_bet_amount" not in st.session_state:
     st.session_state.last_bet_amount = 10000.0
 if "last_click_time" not in st.session_state:
@@ -154,9 +160,44 @@ bqfsm = st.session_state.bqfsm
 ai_opt = st.session_state.ai_opt
 pair_engine = st.session_state.pair_engine
 
-st.title("🎲 Keno QFPS Engine: Nhập Kết Quả Thực Tế & Tối Ưu Bậc 2")
+st.title("🎲 QFPS Keno Engine: Tối Ưu Bậc 2 & Quản Lý Vốn")
 
-# Header Dashboard
+# -----------------------------------------------------------------------------
+# SIDEBAR: MỒI DỮ LIỆU BAN ĐẦU
+# -----------------------------------------------------------------------------
+st.sidebar.title("⚙️ Cấu Hình Dữ Liệu")
+st.sidebar.markdown(f"**Tổng số kỳ hiện có:** `{st.session_state.history_matrix.shape[0]}` kỳ")
+
+with st.sidebar.expander("📥 Nạp Chuỗi 5 Kỳ Gần Nhất", expanded=False):
+    st.caption("Dán kết quả 5 kỳ quay thực tế gần đây (mỗi kỳ 1 dòng, đủ 20 số) để mô hình phân tích chính xác ngay kỳ đầu.")
+    raw_history_input = st.text_area(
+        "Dữ liệu 5 kỳ:",
+        height=120,
+        placeholder="1, 5, 12, 16, 20, 25, 30, 31, 35, 40, 42, 45, 50, 55, 60, 62, 68, 70, 75, 80\n..."
+    )
+    if st.button("💾 Lưu Chuỗi Lịch Sử Mồi"):
+        lines = [line.strip() for line in raw_history_input.split("\n") if line.strip()]
+        if len(lines) < 3:
+            st.error("Cần nhập ít nhất 3 - 5 kỳ để tính độ lặp Ký nhớ!")
+        else:
+            new_matrix = np.zeros((len(lines), 80))
+            valid = True
+            for idx, line in enumerate(lines):
+                nums = [int(s) for s in line.replace(",", " ").split() if s.isdigit()]
+                if len(nums) != 20:
+                    st.error(f"Dòng {idx+1} bị sai số lượng (có {len(nums)} số, cần đúng 20 số).")
+                    valid = False
+                    break
+                for n in nums:
+                    if 1 <= n <= 80:
+                        new_matrix[idx, n - 1] = 1
+            if valid:
+                st.session_state.history_matrix = new_matrix
+                st.success(f"✅ Đã nạp thành công {len(lines)} kỳ thực tế!")
+
+# -----------------------------------------------------------------------------
+# METRICS DASHBOARD
+# -----------------------------------------------------------------------------
 m1, m2, m3, m4 = st.columns(4)
 current_mdd = (bqfsm.peak_capital - bqfsm.Vt) / bqfsm.peak_capital if bqfsm.peak_capital > 0 else 0.0
 m1.metric("Vốn Hiện Tại (Vt)", f"{bqfsm.Vt:,.0f} VNĐ", delta=f"MDD: {current_mdd*100:.1f}%")
@@ -170,7 +211,9 @@ m4.metric("Cầu Chì Vốn", "SAFE" if bqfsm.fuzzy_vector[5] > 0.1 else "LOCKED
 
 st.divider()
 
-# TAB NAVIGATION: NHẬP DỮ LIỆU & SOI CẦU CHI TIẾT
+# -----------------------------------------------------------------------------
+# MAIN TABS: NHẬP KẾT QUẢ & MỔ XẺ CHI TIẾT
+# -----------------------------------------------------------------------------
 tab1, tab2 = st.tabs(["📥 Nhập Kỳ Quay Thực Tế", "🔬 Mổ Xẻ Chi Tiết Kỳ Quay"])
 
 with tab1:
@@ -181,17 +224,16 @@ with tab1:
         
         with col_f1:
             drawn_numbers = st.multiselect(
-                "Chọn đủ 20 con số đã ra trong kết quả thực tế:",
+                "Chọn đủ 20 con số thực tế vừa mở thưởng:",
                 options=list(range(1, 81)),
-                default=list(range(1, 21))  # Default placeholder
+                default=list(range(1, 21))
             )
         
         with col_f2:
             fee_per_ticket = st.selectbox(
                 "Phí dịch vụ mua hộ / vé 10k:",
                 options=[200, 500, 800],
-                index=1,
-                help="Phí phát sinh thêm trên mỗi 10.000 VNĐ tiền vé mua vào."
+                index=1
             )
             violation = st.checkbox("Vi phạm kỷ luật (Tâm lý / Cược sai tiền)")
 
@@ -205,24 +247,22 @@ with tab1:
             reaction_time = now - st.session_state.last_click_time
             st.session_state.last_click_time = now
 
-            # 1. Cập nhật Ma trận Lịch sử 80 số
+            # 1. Nối kỳ quay thực tế mới vào Ma trận Lịch sử
             new_row = np.zeros((1, 80))
             for num in drawn_numbers:
                 new_row[0, num - 1] = 1
             st.session_state.history_matrix = np.vstack([st.session_state.history_matrix, new_row])
 
-            # 2. Kiểm tra Kết quả Cặp Bậc 2 đã cược ở kỳ trước
+            # 2. Đánh giá Cặp Bậc 2 đã cược ở kỳ trước
             pair_a, pair_b = st.session_state.last_pair
-            is_a_in = pair_a in drawn_numbers
-            is_b_in = pair_b in drawn_numbers
-            is_win = is_a_in and is_b_in
+            is_win = (pair_a in drawn_numbers) and (pair_b in drawn_numbers)
 
-            # 3. Tính toán Tài chính chuẩn xác (Trúng Bậc 2: 10k -> 90k, Lãi = 80k)
+            # 3. Tính Lãi/Lỗ thực tế (Keno Bậc 2: 10k -> nhận 90k)
             num_tickets = st.session_state.last_bet_amount / 10000.0
             total_fee = num_tickets * fee_per_ticket
             
             if is_win:
-                payout = num_tickets * 90000.0  # Tổng nhận về
+                payout = num_tickets * 90000.0
                 net_pnl = payout - st.session_state.last_bet_amount - total_fee
                 st.balloons()
                 st.success(f"🎉 TRÚNG BẬC 2 (Cặp {pair_a} - {pair_b})! Lãi ròng: +{net_pnl:,.0f} VNĐ (Đã trừ {total_fee:,.0f} VNĐ phí dịch vụ)")
@@ -230,18 +270,17 @@ with tab1:
                 net_pnl = -(st.session_state.last_bet_amount + total_fee)
                 st.error(f"❌ TRẬT BẬC 2 (Cặp {pair_a} - {pair_b}). Lỗ: {net_pnl:,.0f} VNĐ (Gồm {total_fee:,.0f} VNĐ phí mua hộ)")
 
-            # Cập nhật Vốn
+            # Cập nhật vốn
             bqfsm.Vt += net_pnl
             bqfsm.capital_history.append(bqfsm.Vt)
             if bqfsm.Vt > bqfsm.peak_capital:
                 bqfsm.peak_capital = bqfsm.Vt
             bqfsm.error_history.append(1 if violation else 0)
 
-            # 4. Trích xuất Cặp Bậc 2 Tối ưu cho Kỳ tiếp theo (t+1)
+            # 4. Trích xuất Cặp Bậc 2 Tối ưu cho Kỳ t+1
             next_pair, score, stats = pair_engine.extract_best_pair(st.session_state.history_matrix, renyi_s)
             f_star, next_bet_amt, status_msg = bqfsm.calculate_position_size(renyi_s, reaction_time)
 
-            # Lưu vào State cho kỳ sau
             st.session_state.last_pair = next_pair
             st.session_state.last_bet_amount = next_bet_amt
 
@@ -256,12 +295,11 @@ with tab1:
             st.info(f"💬 **Trạng thái Quản trị Vốn:** {status_msg}")
 
 with tab2:
-    st.subheader("🔬 Phân tích Chi tiết Tần suất & Cụm Lặp (3-5 Kỳ gần nhất)")
+    st.subheader("🔬 Phân tích Tần suất Lặp (Window W = 5 Kỳ)")
     
     recent_5 = st.session_state.history_matrix[-5:]
     counts = np.sum(recent_5, axis=0)
     
-    # Tạo DataFrame theo dõi 80 số
     df_analysis = pd.DataFrame({
         "Con Số": list(range(1, 81)),
         "Số lần về (5 kỳ)": counts,
@@ -270,14 +308,14 @@ with tab2:
     
     col_a1, col_a2 = st.columns([1, 2])
     with col_a1:
-        st.write(" Top Con Số Lặp Mạnh Nhất (3-5 Kỳ):")
+        st.write("Top Con Số Lặp Mạnh Nhất:")
         st.dataframe(df_analysis[df_analysis["Số lần về (5 kỳ)"] >= 2].sort_values(by="Số lần về (5 kỳ)", ascending=False), hide_index=True)
     
     with col_a2:
-        st.write(" Biểu đồ Tần suất Lặp 80 Số")
+        st.write("Biểu đồ Tần suất Lặp 80 Số")
         st.bar_chart(df_analysis.set_index("Con Số")["Số lần về (5 kỳ)"])
 
-# Chart Vốn
+# Biểu đồ Vốn
 if len(bqfsm.capital_history) > 1:
     st.divider()
     st.subheader("📈 Biểu Đồ Tăng Trưởng Vốn Thực Tế")
