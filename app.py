@@ -8,9 +8,7 @@ import streamlit as st
 # -----------------------------------------------------------------------------
 
 class QFPSAIOptimizer:
-    """Bộ Tối ưu hóa AI Động lực học Không gian Pha Lượng tử - Mờ (QFPS).
-    Tích hợp Xuyên hầm Lượng tử và Rényi Entropy (alpha=2) để lọc nhiễu trắng.
-    """
+    """Bộ Tối ưu hóa AI Động lực học Không gian Pha Lượng tử - Mờ (QFPS)."""
     def __init__(self, num_dim: int = 80, hbar: float = 0.1, gamma: float = 0.05, alpha: float = 2.0):
         self.D = num_dim
         self.hbar = hbar
@@ -142,15 +140,38 @@ if "pair_engine" not in st.session_state:
 if "bqfsm" not in st.session_state:
     st.session_state.bqfsm = BQFSMEngine()
 
-# Khởi tạo Ma trận Lịch sử 80 số
+# Khởi tạo Mẫu DataFrame Lịch Sử Ban Đầu
+if "df_history_editor" not in st.session_state:
+    st.session_state.df_history_editor = pd.DataFrame([
+        {"Kỳ Xổ": "#296688", "Chẵn/Lẻ": "Lẻ 12", "Lớn/Nhỏ": "Lớn 11", "20 Con Số Thực Tế (Phân cách dấu phẩy)": "01, 03, 04, 08, 19, 23, 26, 27, 30, 39, 43, 55, 57, 58, 67, 68, 70, 73, 75, 78"},
+        {"Kỳ Xổ": "#296687", "Chẵn/Lẻ": "Chẵn 12", "Lớn/Nhỏ": "Nhỏ 11", "20 Con Số Thực Tế (Phân cách dấu phẩy)": "08, 18, 20, 21, 22, 23, 25, 28, 31, 32, 38, 48, 54, 55, 57, 62, 75, 77, 78, 80"},
+        {"Kỳ Xổ": "#296686", "Chẵn/Lẻ": "Chẵn 12", "Lớn/Nhỏ": "Nhỏ 13", "20 Con Số Thực Tế (Phân cách dấu phẩy)": "03, 06, 11, 15, 16, 19, 20, 22, 26, 28, 34, 38, 40, 49, 57, 65, 66, 68, 73, 76"},
+        {"Kỳ Xổ": "#296685", "Chẵn/Lẻ": "Lẻ 13", "Lớn/Nhỏ": "Lớn 11", "20 Con Số Thực Tế (Phân cách dấu phẩy)": "02, 03, 05, 07, 09, 11, 12, 15, 40, 45, 47, 49, 50, 51, 52, 59, 67, 69, 70, 80"},
+        {"Kỳ Xổ": "#296684", "Chẵn/Lẻ": "Chẵn 14", "Lớn/Nhỏ": "Nhỏ 12", "20 Con Số Thực Tế (Phân cách dấu phẩy)": "02, 10, 14, 16, 18, 21, 22, 23, 24, 25, 26, 40, 43, 46, 47, 51, 52, 60, 74, 78"}
+    ])
+
+# Khởi tạo Ma trận Lịch sử 80 số từ Bảng
+def build_matrix_from_df(df):
+    rows = []
+    for _, row in df.iterrows():
+        raw_nums = str(row["20 Con Số Thực Tế (Phân cách dấu phẩy)"])
+        parsed = [int(s.strip()) for s in raw_nums.replace(",", " ").split() if s.strip().isdigit()]
+        if len(parsed) == 20:
+            rows.append(parsed)
+    
+    T = len(rows)
+    matrix = np.zeros((max(T, 1), 80))
+    for t_idx, nums in enumerate(rows):
+        for n in nums:
+            if 1 <= n <= 80:
+                matrix[t_idx, n - 1] = 1
+    return matrix
+
 if "history_matrix" not in st.session_state:
-    init_hist = np.zeros((5, 80))
-    for t in range(5):
-        init_hist[t, np.random.choice(80, 20, replace=False)] = 1
-    st.session_state.history_matrix = init_hist
+    st.session_state.history_matrix = build_matrix_from_df(st.session_state.df_history_editor)
 
 if "last_pair" not in st.session_state:
-    st.session_state.last_pair = (1, 2)
+    st.session_state.last_pair = (51, 61)
 if "last_bet_amount" not in st.session_state:
     st.session_state.last_bet_amount = 10000.0
 if "last_click_time" not in st.session_state:
@@ -161,39 +182,6 @@ ai_opt = st.session_state.ai_opt
 pair_engine = st.session_state.pair_engine
 
 st.title("🎲 QFPS Keno Engine: Tối Ưu Bậc 2 & Quản Lý Vốn")
-
-# -----------------------------------------------------------------------------
-# SIDEBAR: MỒI DỮ LIỆU BAN ĐẦU
-# -----------------------------------------------------------------------------
-st.sidebar.title("⚙️ Cấu Hình Dữ Liệu")
-st.sidebar.markdown(f"**Tổng số kỳ hiện có:** `{st.session_state.history_matrix.shape[0]}` kỳ")
-
-with st.sidebar.expander("📥 Nạp Chuỗi 5 Kỳ Gần Nhất", expanded=False):
-    st.caption("Dán kết quả 5 kỳ quay thực tế gần đây (mỗi kỳ 1 dòng, đủ 20 số) để mô hình phân tích chính xác ngay kỳ đầu.")
-    raw_history_input = st.text_area(
-        "Dữ liệu 5 kỳ:",
-        height=120,
-        placeholder="1, 5, 12, 16, 20, 25, 30, 31, 35, 40, 42, 45, 50, 55, 60, 62, 68, 70, 75, 80\n..."
-    )
-    if st.button("💾 Lưu Chuỗi Lịch Sử Mồi"):
-        lines = [line.strip() for line in raw_history_input.split("\n") if line.strip()]
-        if len(lines) < 3:
-            st.error("Cần nhập ít nhất 3 - 5 kỳ để tính độ lặp Ký nhớ!")
-        else:
-            new_matrix = np.zeros((len(lines), 80))
-            valid = True
-            for idx, line in enumerate(lines):
-                nums = [int(s) for s in line.replace(",", " ").split() if s.isdigit()]
-                if len(nums) != 20:
-                    st.error(f"Dòng {idx+1} bị sai số lượng (có {len(nums)} số, cần đúng 20 số).")
-                    valid = False
-                    break
-                for n in nums:
-                    if 1 <= n <= 80:
-                        new_matrix[idx, n - 1] = 1
-            if valid:
-                st.session_state.history_matrix = new_matrix
-                st.success(f"✅ Đã nạp thành công {len(lines)} kỳ thực tế!")
 
 # -----------------------------------------------------------------------------
 # METRICS DASHBOARD
@@ -212,11 +200,60 @@ m4.metric("Cầu Chì Vốn", "SAFE" if bqfsm.fuzzy_vector[5] > 0.1 else "LOCKED
 st.divider()
 
 # -----------------------------------------------------------------------------
-# MAIN TABS: NHẬP KẾT QUẢ & MỔ XẺ CHI TIẾT
+# MAIN NAVIGATION TABS
 # -----------------------------------------------------------------------------
-tab1, tab2 = st.tabs(["📥 Nhập Kỳ Quay Thực Tế", "🔬 Mổ Xẻ Chi Tiết Kỳ Quay"])
+tab1, tab2, tab3 = st.tabs(["📋 Bảng Nạp Lịch Sử 5 Kỳ", "📥 Cập Nhật Kỳ Quay Hiện Tại", "🔬 Mổ Xẻ Chi Tiết Kỳ Quay"])
 
+# TAB 1: BẢNG NẠP LỊCH SỬ DẠNG MINH CHÍNH / VIETLOTT
 with tab1:
+    st.subheader("📋 Bảng Quản Lý & Nạp Lịch Sử 5-10 Kỳ Quay Chi Tiết")
+    st.caption("Cấu trúc dạng Bảng giúp đối soát mã kỳ quay, tỷ lệ Chẵn/Lẻ, Lớn/Nhỏ và 20 con số chuẩn xác.")
+
+    edited_df = st.data_editor(
+        st.session_state.df_history_editor,
+        num_rows="dynamic",
+        use_container_width=True,
+        column_config={
+            "Kỳ Xổ": st.column_config.TextColumn("Mã Kỳ Xổ", help="VD: #296688", width="small"),
+            "Chẵn/Lẻ": st.column_config.TextColumn("Thống kê C/L", width="small"),
+            "Lớn/Nhỏ": st.column_config.TextColumn("Thống kê L/N", width="small"),
+            "20 Con Số Thực Tế (Phân cách dấu phẩy)": st.column_config.TextColumn("Danh sách 20 số trúng", width="large")
+        }
+    )
+
+    if st.button("🚀 Đồng Bộ Vào Ma Trận AI 80 Số", type="primary"):
+        errors = []
+        valid_rows = []
+
+        for idx, row in edited_df.iterrows():
+            raw_nums = str(row["20 Con Số Thực Tế (Phân cách dấu phẩy)"])
+            parsed = [int(s.strip()) for s in raw_nums.replace(",", " ").split() if s.strip().isdigit()]
+            
+            if len(parsed) != 20:
+                errors.append(f"Kỳ `{row['Kỳ Xổ']}` đang có {len(parsed)} số (yêu cầu đúng 20 số).")
+            else:
+                if len(set(parsed)) != 20:
+                    errors.append(f"Kỳ `{row['Kỳ Xổ']}` có số bị trùng lặp!")
+                else:
+                    valid_rows.append(parsed)
+
+        if errors:
+            for err in errors:
+                st.error(f"❌ {err}")
+        else:
+            T = len(valid_rows)
+            new_matrix = np.zeros((T, 80))
+            for t_idx, nums in enumerate(valid_rows):
+                for n in nums:
+                    if 1 <= n <= 80:
+                        new_matrix[t_idx, n - 1] = 1
+
+            st.session_state.history_matrix = new_matrix
+            st.session_state.df_history_editor = edited_df
+            st.success(f"🎉 Đã chuyển đổi thành công {T} kỳ quay chuẩn hóa thành Ma trận Lịch sử Lượng tử!")
+
+# TAB 2: CẬP NHẬT KỲ VỪA QUAY VÀ TÍNH LÃI/LỖ
+with tab2:
     st.subheader("Cập nhật 20 số thực tế của kỳ vừa quay")
     
     with st.form("actual_draw_form"):
@@ -294,8 +331,9 @@ with tab1:
 
             st.info(f"💬 **Trạng thái Quản trị Vốn:** {status_msg}")
 
-with tab2:
-    st.subheader("🔬 Phân tích Tần suất Lặp (Window W = 5 Kỳ)")
+# TAB 3: MỔ XẺ CHI TIẾT TẦN SUẤT VÀ CỤM LẶP
+with tab3:
+    st.subheader("🔬 Phân tích Tần suất Lặp (Window W = 5 Kỳ gần nhất)")
     
     recent_5 = st.session_state.history_matrix[-5:]
     counts = np.sum(recent_5, axis=0)
@@ -315,7 +353,7 @@ with tab2:
         st.write("Biểu đồ Tần suất Lặp 80 Số")
         st.bar_chart(df_analysis.set_index("Con Số")["Số lần về (5 kỳ)"])
 
-# Biểu đồ Vốn
+# BIỂU ĐỒ TĂNG TRƯỞNG VỐN
 if len(bqfsm.capital_history) > 1:
     st.divider()
     st.subheader("📈 Biểu Đồ Tăng Trưởng Vốn Thực Tế")
