@@ -1,3 +1,4 @@
+import re
 import time
 import numpy as np
 import pandas as pd
@@ -215,56 +216,54 @@ tab1, tab2, tab3 = st.tabs(["📋 Bảng Nạp Lịch Sử 5 Kỳ", "📥 Cập 
 # TAB 1: BẢNG NẠP LỊCH SỬ TƯƠNG TÁC
 with tab1:
     st.markdown("### ⚡ Nhập Nhanh Chuỗi 20 Số (Dán từ clipboard)")
+    
     raw_text_input = st.text_area(
         "Dán chuỗi số 5 kỳ (mỗi kỳ 1 dòng):",
-        placeholder="Kì 1: 01 04 15 ...\nKì 2: ...",
+        placeholder="Kì 1: 04 06 10 18 ...\nKì 2: 02 06 07 ...",
         key="raw_text_keno"
     )
     
     if st.button("⚡ Phân Tách & Nạp Nhanh"):
         raw_data = raw_text_input.strip()
-        parsed_rows = []
         
-        # 1. Tách chuỗi theo các mốc "Kì X:" hoặc "Kỳ X:" (bất chấp xuống dòng)
-        blocks = re.split(r'(?:Kì|Kỳ)\s*\d+[:\s]*', raw_data, flags=re.IGNORECASE)
-        
-        # Lọc bỏ block rỗng đầu tiên nếu có
-        blocks = [b.strip() for b in blocks if b.strip()]
-        
-        # 2. Nếu không tìm thấy nhãn "Kì X:", tự động tách theo từng dòng thực tế
-        if not blocks:
-            blocks = [line.strip() for line in raw_data.split("\n") if line.strip()]
+        if not raw_data:
+            st.warning("⚠️ Vui lòng dán dữ liệu vào khung trước khi bấm nạp!")
+        else:
+            # 1. Bỏ toàn bộ các nhãn "Kì X:", "Kỳ X:" để tránh gom nhầm số '1','2','3' của tên Kỳ
+            cleaned_data = re.sub(r'(?:Kì|Kỳ)\s*\d+[:\s]*', '\n', raw_data, flags=re.IGNORECASE)
             
-        for idx, block in enumerate(blocks):
-            # Trích xuất toàn bộ các chuỗi gồm 2 chữ số hoặc số nguyên
-            nums = [int(n) for n in re.findall(r'\b\d{1,2}\b', block)]
+            # 2. Tách thành danh sách tất cả các số nguyên từ 1 đến 80 xuất hiện trong chuỗi
+            all_numbers = [int(n) for n in re.findall(r'\b\d{1,2}\b', cleaned_data) if 1 <= int(n) <= 80]
             
-            # Lọc các số hợp lệ trong khoảng Keno (1 đến 80)
-            valid_nums = [n for n in nums if 1 <= n <= 80]
+            # 3. Chia đều danh sách số thành các nhóm, mỗi nhóm đủ 20 số (mỗi kỳ)
+            parsed_rows = []
+            total_valid_kies = len(all_numbers) // 20
             
-            # Chỉ lấy đúng 20 số đầu tiên của kỳ đó
-            if len(valid_nums) >= 20:
-                keno_20 = valid_nums[:20]
+            for idx in range(total_valid_kies):
+                keno_20 = all_numbers[idx * 20 : (idx + 1) * 20]
                 parsed_rows.append({
                     "Kỳ Xổ": f"#Ký_{idx+1}",
                     "Chẵn/Lẻ": "Tự động",
                     "Lớn/Nhỏ": "Tự động",
-                    "20 Con Số Thực Tế (Phân cách dấu phẩy)": ", ".join([f"{n:02d}" for n in keno_20])
+                    "20 Con Số Thực Tế (Phân cách dấu phẩy)": ", ".join([f"{n:02d}" for n in sorted(keno_20)])
                 })
-        
-        # 3. Cập nhật vào Session State nếu đủ từ 5 kỳ trở lên
-        if len(parsed_rows) >= 5:
-            df_parsed = pd.DataFrame(parsed_rows[:5])
-            st.session_state.df_history_editor = df_parsed
             
-            # Gọi hàm tính toán lại ma trận & thuật toán gợi ý cặp Bậc 2
-            if 'build_matrix_from_df' in globals():
-                st.session_state.history_matrix = build_matrix_from_df(df_parsed)
+            # 4. Lưu dữ liệu vào session_state để duy trì khi chuyển sang Tab khác
+            if len(parsed_rows) >= 5:
+                df_parsed = pd.DataFrame(parsed_rows[:5])
                 
-            st.success("🎉 Đã phân tách & nạp thành công ma trận 5 kỳ!")
-            st.rerun()
-        else:
-            st.error(f"❌ Chỉ phân tách được {len(parsed_rows)}/5 kỳ hợp lệ. Vui lòng kiểm tra lại dữ liệu đầu vào!")
+                st.session_state.df_history_editor = df_parsed
+                
+                # Gọi hàm dựng lại ma trận phân tích
+                if 'build_matrix_from_df' in globals():
+                    st.session_state.history_matrix = build_matrix_from_df(df_parsed)
+                elif 'build_matrix' in globals():
+                    st.session_state.history_matrix = build_matrix(df_parsed)
+                
+                st.success(f"🎉 Đã phân tách & nạp thành công {len(parsed_rows[:5])} kỳ hợp lệ!")
+                st.rerun()
+            else:
+                st.error(f"❌ Hệ thống chỉ tìm thấy {len(parsed_rows)} kỳ (mỗi kỳ 20 số). Cần tối thiểu 5 kỳ đầy đủ!")
 # TAB 2: FORM CẬP NHẬT KỲ THỰC TẾ & KHUYẾN NGHỊ VỐN
 with tab2:
     st.subheader("Cập nhật 20 số thực tế của kỳ vừa quay")
