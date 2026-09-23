@@ -223,47 +223,42 @@ with tab1:
         key="raw_text_keno"
     )
     
-    if st.button("⚡ Phân Tách & Nạp Nhanh"):
+    # TỰ ĐỘNG XỬ LÝ NGAY KHI CÓ DỮ LIỆU DÁN VÀO (KHÔNG CẦN BẤM NÚT)
+    if raw_text_input.strip():
         raw_data = raw_text_input.strip()
         
-        if not raw_data:
-            st.warning("⚠️ Vui lòng dán dữ liệu vào khung trước khi bấm nạp!")
+        # 1. Bỏ nhãn "Kì X:", "Kỳ X:"
+        cleaned_data = re.sub(r'(?:Kì|Kỳ)\s*\d+[:\s]*', '\n', raw_data, flags=re.IGNORECASE)
+        
+        # 2. Lấy toàn bộ số Keno (1 - 80)
+        all_numbers = [int(n) for n in re.findall(r'\b\d{1,2}\b', cleaned_data) if 1 <= int(n) <= 80]
+        
+        # 3. Gom thành từng kỳ (mỗi kỳ 20 số)
+        parsed_rows = []
+        total_valid_kies = len(all_numbers) // 20
+        
+        for idx in range(total_valid_kies):
+            keno_20 = all_numbers[idx * 20 : (idx + 1) * 20]
+            parsed_rows.append({
+                "Kỳ Xổ": f"#Ký_{idx+1}",
+                "Chẵn/Lẻ": "Tự động",
+                "Lớn/Nhỏ": "Tự động",
+                "20 Con Số Thực Tế (Phân cách dấu phẩy)": ", ".join([f"{n:02d}" for n in sorted(keno_20)])
+            })
+        
+        # 4. Cập nhật state nếu đủ từ 5 kỳ trở lên
+        if len(parsed_rows) >= 5:
+            df_parsed = pd.DataFrame(parsed_rows[:5])
+            st.session_state.df_history_editor = df_parsed
+            
+            if 'build_matrix_from_df' in globals():
+                st.session_state.history_matrix = build_matrix_from_df(df_parsed)
+            elif 'build_matrix' in globals():
+                st.session_state.history_matrix = build_matrix(df_parsed)
+                
+            st.success(f"⚡ Đã tự động phân tách & cập nhật thành công {len(parsed_rows[:5])} kỳ mới!")
         else:
-            # 1. Bỏ toàn bộ các nhãn "Kì X:", "Kỳ X:" để tránh gom nhầm số '1','2','3' của tên Kỳ
-            cleaned_data = re.sub(r'(?:Kì|Kỳ)\s*\d+[:\s]*', '\n', raw_data, flags=re.IGNORECASE)
-            
-            # 2. Tách thành danh sách tất cả các số nguyên từ 1 đến 80 xuất hiện trong chuỗi
-            all_numbers = [int(n) for n in re.findall(r'\b\d{1,2}\b', cleaned_data) if 1 <= int(n) <= 80]
-            
-            # 3. Chia đều danh sách số thành các nhóm, mỗi nhóm đủ 20 số (mỗi kỳ)
-            parsed_rows = []
-            total_valid_kies = len(all_numbers) // 20
-            
-            for idx in range(total_valid_kies):
-                keno_20 = all_numbers[idx * 20 : (idx + 1) * 20]
-                parsed_rows.append({
-                    "Kỳ Xổ": f"#Ký_{idx+1}",
-                    "Chẵn/Lẻ": "Tự động",
-                    "Lớn/Nhỏ": "Tự động",
-                    "20 Con Số Thực Tế (Phân cách dấu phẩy)": ", ".join([f"{n:02d}" for n in sorted(keno_20)])
-                })
-            
-            # 4. Lưu dữ liệu vào session_state để duy trì khi chuyển sang Tab khác
-            if len(parsed_rows) >= 5:
-                df_parsed = pd.DataFrame(parsed_rows[:5])
-                
-                st.session_state.df_history_editor = df_parsed
-                
-                # Gọi hàm dựng lại ma trận phân tích
-                if 'build_matrix_from_df' in globals():
-                    st.session_state.history_matrix = build_matrix_from_df(df_parsed)
-                elif 'build_matrix' in globals():
-                    st.session_state.history_matrix = build_matrix(df_parsed)
-                
-                st.success(f"🎉 Đã phân tách & nạp thành công {len(parsed_rows[:5])} kỳ hợp lệ!")
-                st.rerun()
-            else:
-                st.error(f"❌ Hệ thống chỉ tìm thấy {len(parsed_rows)} kỳ (mỗi kỳ 20 số). Cần tối thiểu 5 kỳ đầy đủ!")
+            st.warning(f"⚠️ Đã tìm thấy {len(parsed_rows)}/5 kỳ. Vui lòng dán đủ dữ liệu 5 kỳ (100 số)!") 
 # TAB 2: FORM CẬP NHẬT KỲ THỰC TẾ & KHUYẾN NGHỊ VỐN
 with tab2:
     st.subheader("Cập nhật 20 số thực tế của kỳ vừa quay")
