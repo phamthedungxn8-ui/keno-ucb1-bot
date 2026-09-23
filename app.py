@@ -217,26 +217,41 @@ with tab1:
     st.markdown("### ⚡ Nhập Nhanh Chuỗi 20 Số (Dán từ clipboard)")
     raw_text_input = st.text_area(
         "Dán chuỗi số 5 kỳ (mỗi kỳ 1 dòng):",
-        placeholder="Kỳ 1: 01, 04, 15, 20, 22, 25, 30, 33, 40, 45, 50, 52, 58, 60, 65, 70, 72, 75, 78, 80\nKỳ 2: ..."
+        placeholder="Kỳ 1: 01 04 15 ...\nKỳ 2: ...",
+        key="raw_text_keno"
     )
+    
     if st.button("⚡ Phân Tách & Nạp Nhanh"):
         lines = [line.strip() for line in raw_text_input.split("\n") if line.strip()]
         parsed_rows = []
+        
         for idx, line in enumerate(lines):
+            # 1. Tách bỏ phần tiền tố "Kì 1:", "Kỳ 1:" nếu có
+            if ":" in line:
+                line = line.split(":", 1)[1]
+            
+            # 2. Tách lấy các con số Keno thực tế
             nums = [int(s) for s in line.replace(",", " ").split() if s.isdigit()]
-            if len(nums) == 20:
+            
+            # Chỉ lấy đúng 20 số đầu tiên nếu chuỗi hợp lệ
+            if len(nums) >= 20:
+                nums = nums[:20]
                 parsed_rows.append({
                     "Kỳ Xổ": f"#Ký_{idx+1}",
                     "Chẵn/Lẻ": "Tự động",
                     "Lớn/Nhỏ": "Tự động",
                     "20 Con Số Thực Tế (Phân cách dấu phẩy)": ", ".join([f"{n:02d}" for n in nums])
                 })
-        if parsed_rows:
-            df_parsed = pd.DataFrame(parsed_rows)
+        
+        if len(parsed_rows) >= 5:
+            df_parsed = pd.DataFrame(parsed_rows[:5])
+            # Lưu vĩnh viễn vào Session State
             st.session_state.df_history_editor = df_parsed
             st.session_state.history_matrix = build_matrix_from_df(df_parsed)
-            st.success(f"🎉 Đã phân tách và nạp thành công {len(parsed_rows)} kỳ!")
+            st.success("🎉 Đã phân tách & cập nhật thành công ma trận 5 kỳ!")
             st.rerun()
+        else:
+            st.error(f"❌ Chỉ phân tách được {len(parsed_rows)}/5 kỳ hợp lệ. Vui lòng kiểm tra lại dữ liệu đầu vào!")
 
 # TAB 2: FORM CẬP NHẬT KỲ THỰC TẾ & KHUYẾN NGHỊ VỐN
 with tab2:
