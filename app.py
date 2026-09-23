@@ -223,42 +223,73 @@ with tab1:
         key="raw_text_keno"
     )
     
-    # TỰ ĐỘNG XỬ LÝ NGAY KHI CÓ DỮ LIỆU DÁN VÀO (KHÔNG CẦN BẤM NÚT)
+    # TỰ ĐỘNG BÓC TÁCH VÀ TÍNH TOÁN NGAY KHI CÓ DỮ LIỆU
     if raw_text_input.strip():
         raw_data = raw_text_input.strip()
         
-        # 1. Bỏ nhãn "Kì X:", "Kỳ X:"
+        # 1. Lọc bỏ chữ "Kì/Kỳ X:" và trích xuất danh sách số Keno (1 - 80)
         cleaned_data = re.sub(r'(?:Kì|Kỳ)\s*\d+[:\s]*', '\n', raw_data, flags=re.IGNORECASE)
-        
-        # 2. Lấy toàn bộ số Keno (1 - 80)
         all_numbers = [int(n) for n in re.findall(r'\b\d{1,2}\b', cleaned_data) if 1 <= int(n) <= 80]
         
-        # 3. Gom thành từng kỳ (mỗi kỳ 20 số)
+        # 2. Gom nhóm 20 số / kỳ
         parsed_rows = []
         total_valid_kies = len(all_numbers) // 20
         
         for idx in range(total_valid_kies):
-            keno_20 = all_numbers[idx * 20 : (idx + 1) * 20]
+            keno_20 = sorted(all_numbers[idx * 20 : (idx + 1) * 20])
             parsed_rows.append({
                 "Kỳ Xổ": f"#Ký_{idx+1}",
                 "Chẵn/Lẻ": "Tự động",
                 "Lớn/Nhỏ": "Tự động",
-                "20 Con Số Thực Tế (Phân cách dấu phẩy)": ", ".join([f"{n:02d}" for n in sorted(keno_20)])
+                "20 Con Số Thực Tế (Phân cách dấu phẩy)": ", ".join([f"{n:02d}" for n in keno_20])
             })
         
-        # 4. Cập nhật state nếu đủ từ 5 kỳ trở lên
         if len(parsed_rows) >= 5:
             df_parsed = pd.DataFrame(parsed_rows[:5])
             st.session_state.df_history_editor = df_parsed
             
-            if 'build_matrix_from_df' in globals():
-                st.session_state.history_matrix = build_matrix_from_df(df_parsed)
-            elif 'build_matrix' in globals():
-                st.session_state.history_matrix = build_matrix(df_parsed)
+            # 3. Tạo ma trận lịch sử 5 kỳ
+            matrix = build_matrix_from_df(df_parsed) if 'build_matrix_from_df' in globals() else build_matrix(df_parsed)
+            st.session_state.history_matrix = matrix
+            
+            st.success("🎉 Đã phân tách & cập nhật thành công 5 kỳ lịch sử!")
+            
+            # 4. CHẠY ENGINE AI VÀ XUẤT KẾT QUẢ TRỰC TIẾP TẠI ĐÂY (KHÔNG BỎ SÓT UI)
+            st.markdown("---")
+            st.markdown("### 🎯 GỢI Ý CẶP BẬC 2 & KHUYẾN NGHỊ VỐN KỲ t+1")
+            
+            # Gọi Engine tối ưu AI có sẵn trong code của bạn
+            if 'QFPSAIOptimizer' in globals():
+                optimizer = QFPSAIOptimizer(num_dim=80)
+                best_pair, score, rec_bet = optimizer.optimize(matrix)
                 
-            st.success(f"⚡ Đã tự động phân tách & cập nhật thành công {len(parsed_rows[:5])} kỳ mới!")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric(
+                        label="Cặp Bậc 2 Tối Ưu Mới", 
+                        value=f"Số {best_pair[0]:02d} - Số {best_pair[1]:02d}"
+                    )
+                with col2:
+                    st.metric(
+                        label="Điểm Cộng Hưởng Ký Nhớ", 
+                        value=f"{score:.4f}"
+                    )
+                
+                st.info(f"💡 **Tiền Nên Vào (Gốc):** `{rec_bet:,.0f} VNĐ`")
+            else:
+                # Nếu không dùng class Optimizer, gọi hàm tính tần suất cặp đơn giản
+                pair_counts = {}
+                for row in matrix:
+                    indices = [i + 1 for i, val in enumerate(row) if val == 1]
+                    for i in range(len(indices)):
+                        for j in range(i + 1, len(indices)):
+                            pair = (indices[i], indices[j])
+                            pair_counts[pair] = pair_counts.get(pair, 0) + 1
+                
+                best_pair = max(pair_counts, key=pair_counts.get) if pair_counts else (12, 14)
+                st.subheader(f"Cặp Bậc 2 Tối Ưu Mới: **Số {best_pair[0]:02d} - Số {best_pair[1]:02d}**")
         else:
-            st.warning(f"⚠️ Đã tìm thấy {len(parsed_rows)}/5 kỳ. Vui lòng dán đủ dữ liệu 5 kỳ (100 số)!") 
+            st.warning(f"⚠️ Mới tìm thấy {len(parsed_rows)}/5 kỳ. Cần dán đủ 100 số (5 kỳ)!")
 # TAB 2: FORM CẬP NHẬT KỲ THỰC TẾ & KHUYẾN NGHỊ VỐN
 with tab2:
     st.subheader("Cập nhật 20 số thực tế của kỳ vừa quay")
