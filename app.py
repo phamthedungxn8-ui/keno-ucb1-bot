@@ -223,11 +223,11 @@ with tab1:
         key="raw_text_keno"
     )
     
-    # TỰ ĐỘNG BÓC TÁCH VÀ TÍNH TOÁN NGAY KHI CÓ DỮ LIỆU
+    # TỰ ĐỘNG BÓC TÁCH VÀ TÍNH TOÁN
     if raw_text_input.strip():
         raw_data = raw_text_input.strip()
         
-        # 1. Lọc bỏ chữ "Kì/Kỳ X:" và trích xuất danh sách số Keno (1 - 80)
+        # 1. Trích xuất danh sách số Keno (1 - 80)
         cleaned_data = re.sub(r'(?:Kì|Kỳ)\s*\d+[:\s]*', '\n', raw_data, flags=re.IGNORECASE)
         all_numbers = [int(n) for n in re.findall(r'\b\d{1,2}\b', cleaned_data) if 1 <= int(n) <= 80]
         
@@ -249,35 +249,19 @@ with tab1:
             st.session_state.df_history_editor = df_parsed
             
             # 3. Tạo ma trận lịch sử 5 kỳ
-            matrix = build_matrix_from_df(df_parsed) if 'build_matrix_from_df' in globals() else build_matrix(df_parsed)
+            if 'build_matrix_from_df' in globals():
+                matrix = build_matrix_from_df(df_parsed)
+            elif 'build_matrix' in globals():
+                matrix = build_matrix(df_parsed)
+            else:
+                matrix = None
+                
             st.session_state.history_matrix = matrix
-            
             st.success("🎉 Đã phân tách & cập nhật thành công 5 kỳ lịch sử!")
             
-            # 4. CHẠY ENGINE AI VÀ XUẤT KẾT QUẢ TRỰC TIẾP TẠI ĐÂY (KHÔNG BỎ SÓT UI)
-            st.markdown("---")
-            st.markdown("### 🎯 GỢI Ý CẶP BẬC 2 & KHUYẾN NGHỊ VỐN KỲ t+1")
-            
-            # Gọi Engine tối ưu AI có sẵn trong code của bạn
-            if 'QFPSAIOptimizer' in globals():
-                optimizer = QFPSAIOptimizer(num_dim=80)
-                best_pair, score, rec_bet = optimizer.optimize(matrix)
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric(
-                        label="Cặp Bậc 2 Tối Ưu Mới", 
-                        value=f"Số {best_pair[0]:02d} - Số {best_pair[1]:02d}"
-                    )
-                with col2:
-                    st.metric(
-                        label="Điểm Cộng Hưởng Ký Nhớ", 
-                        value=f"{score:.4f}"
-                    )
-                
-                st.info(f"💡 **Tiền Nên Vào (Gốc):** `{rec_bet:,.0f} VNĐ`")
-            else:
-                # Nếu không dùng class Optimizer, gọi hàm tính tần suất cặp đơn giản
+            # 4. TÍNH TOÁN CẶP BẬC 2 TRỰC TIẾP TỪ MA TRẬN (AN TOÀN KO LỖI)
+            if matrix is not None:
+                # Đếm tần suất cặp xuất hiện trong 5 kỳ
                 pair_counts = {}
                 for row in matrix:
                     indices = [i + 1 for i, val in enumerate(row) if val == 1]
@@ -286,8 +270,29 @@ with tab1:
                             pair = (indices[i], indices[j])
                             pair_counts[pair] = pair_counts.get(pair, 0) + 1
                 
-                best_pair = max(pair_counts, key=pair_counts.get) if pair_counts else (12, 14)
-                st.subheader(f"Cặp Bậc 2 Tối Ưu Mới: **Số {best_pair[0]:02d} - Số {best_pair[1]:02d}**")
+                # Tìm cặp số xuất hiện nhiều nhất
+                if pair_counts:
+                    best_pair = max(pair_counts, key=pair_counts.get)
+                    max_freq = pair_counts[best_pair]
+                else:
+                    best_pair = (12, 14)
+                    max_freq = 0
+                
+                # Hiển thị trực tiếp kết quả ra màn hình
+                st.markdown("---")
+                st.markdown("### 🎯 GỢI Ý CẶP BẬC 2 & KHUYẾN NGHỊ VỐN KỲ t+1")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric(
+                        label="Cặp BẬC 2 Tối Ưu Mới", 
+                        value=f"{best_pair[0]:02d} - {best_pair[1]:02d}"
+                    )
+                with col2:
+                    st.metric(
+                        label="Tần Suất Xuất Hiện (5 Kỳ)", 
+                        value=f"{max_freq} lần"
+                    )
         else:
             st.warning(f"⚠️ Mới tìm thấy {len(parsed_rows)}/5 kỳ. Cần dán đủ 100 số (5 kỳ)!")
 # TAB 2: FORM CẬP NHẬT KỲ THỰC TẾ & KHUYẾN NGHỊ VỐN
