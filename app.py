@@ -214,51 +214,29 @@ tab1, tab2, tab3 = st.tabs(["📋 Bảng Nạp Lịch Sử 5 Kỳ", "📥 Cập 
 
 # TAB 1: BẢNG NẠP LỊCH SỬ TƯƠNG TÁC
 with tab1:
-    st.subheader("📋 Bảng Quản Lý & Nạp Lịch Sử 5-10 Kỳ Quay Chi Tiết")
-    st.caption("Cấu trúc dạng Bảng giúp đối soát mã kỳ quay, tỷ lệ Chẵn/Lẻ, Lớn/Nhỏ và 20 con số chuẩn xác.")
-
-    edited_df = st.data_editor(
-        st.session_state.df_history_editor,
-        num_rows="dynamic",
-        use_container_width=True,
-        column_config={
-            "Kỳ Xổ": st.column_config.TextColumn("Mã Kỳ Xổ", help="VD: #296688", width="small"),
-            "Chẵn/Lẻ": st.column_config.TextColumn("Thống kê C/L", width="small"),
-            "Lớn/Nhỏ": st.column_config.TextColumn("Thống kê L/N", width="small"),
-            "20 Con Số Thực Tế (Phân cách dấu phẩy)": st.column_config.TextColumn("Danh sách 20 số trúng", width="large")
-        }
+    st.markdown("### ⚡ Nhập Nhanh Chuỗi 20 Số (Dán từ clipboard)")
+    raw_text_input = st.text_area(
+        "Dán chuỗi số 5 kỳ (mỗi kỳ 1 dòng):",
+        placeholder="Kỳ 1: 01, 04, 15, 20, 22, 25, 30, 33, 40, 45, 50, 52, 58, 60, 65, 70, 72, 75, 78, 80\nKỳ 2: ..."
     )
-
-    if st.button("🚀 Đồng Bộ Vào Ma Trận AI 80 Số", type="primary"):
-        errors = []
-        valid_rows = []
-
-        for idx, row in edited_df.iterrows():
-            raw_nums = str(row["20 Con Số Thực Tế (Phân cách dấu phẩy)"])
-            parsed = [int(s.strip()) for s in raw_nums.replace(",", " ").split() if s.strip().isdigit()]
-            
-            if len(parsed) != 20:
-                errors.append(f"Kỳ `{row['Kỳ Xổ']}` đang có {len(parsed)} số (yêu cầu đúng 20 số).")
-            else:
-                if len(set(parsed)) != 20:
-                    errors.append(f"Kỳ `{row['Kỳ Xổ']}` có số bị trùng lặp!")
-                else:
-                    valid_rows.append(parsed)
-
-        if errors:
-            for err in errors:
-                st.error(f"❌ {err}")
-        else:
-            T = len(valid_rows)
-            new_matrix = np.zeros((T, 80))
-            for t_idx, nums in enumerate(valid_rows):
-                for n in nums:
-                    if 1 <= n <= 80:
-                        new_matrix[t_idx, n - 1] = 1
-
-            st.session_state.history_matrix = new_matrix
-            st.session_state.df_history_editor = edited_df
-            st.success(f"🎉 Đã chuyển đổi thành công {T} kỳ quay chuẩn hóa thành Ma trận Lịch sử Lượng tử!")
+    if st.button("⚡ Phân Tách & Nạp Nhanh"):
+        lines = [line.strip() for line in raw_text_input.split("\n") if line.strip()]
+        parsed_rows = []
+        for idx, line in enumerate(lines):
+            nums = [int(s) for s in line.replace(",", " ").split() if s.isdigit()]
+            if len(nums) == 20:
+                parsed_rows.append({
+                    "Kỳ Xổ": f"#Ký_{idx+1}",
+                    "Chẵn/Lẻ": "Tự động",
+                    "Lớn/Nhỏ": "Tự động",
+                    "20 Con Số Thực Tế (Phân cách dấu phẩy)": ", ".join([f"{n:02d}" for n in nums])
+                })
+        if parsed_rows:
+            df_parsed = pd.DataFrame(parsed_rows)
+            st.session_state.df_history_editor = df_parsed
+            st.session_state.history_matrix = build_matrix_from_df(df_parsed)
+            st.success(f"🎉 Đã phân tách và nạp thành công {len(parsed_rows)} kỳ!")
+            st.rerun()
 
 # TAB 2: FORM CẬP NHẬT KỲ THỰC TẾ & KHUYẾN NGHỊ VỐN
 with tab2:
