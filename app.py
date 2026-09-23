@@ -217,42 +217,54 @@ with tab1:
     st.markdown("### ⚡ Nhập Nhanh Chuỗi 20 Số (Dán từ clipboard)")
     raw_text_input = st.text_area(
         "Dán chuỗi số 5 kỳ (mỗi kỳ 1 dòng):",
-        placeholder="Kỳ 1: 01 04 15 ...\nKỳ 2: ...",
+        placeholder="Kì 1: 01 04 15 ...\nKì 2: ...",
         key="raw_text_keno"
     )
     
     if st.button("⚡ Phân Tách & Nạp Nhanh"):
-        lines = [line.strip() for line in raw_text_input.split("\n") if line.strip()]
+        raw_data = raw_text_input.strip()
         parsed_rows = []
         
-        for idx, line in enumerate(lines):
-            # 1. Tách bỏ phần tiền tố "Kì 1:", "Kỳ 1:" nếu có
-            if ":" in line:
-                line = line.split(":", 1)[1]
+        # 1. Tách chuỗi theo các mốc "Kì X:" hoặc "Kỳ X:" (bất chấp xuống dòng)
+        blocks = re.split(r'(?:Kì|Kỳ)\s*\d+[:\s]*', raw_data, flags=re.IGNORECASE)
+        
+        # Lọc bỏ block rỗng đầu tiên nếu có
+        blocks = [b.strip() for b in blocks if b.strip()]
+        
+        # 2. Nếu không tìm thấy nhãn "Kì X:", tự động tách theo từng dòng thực tế
+        if not blocks:
+            blocks = [line.strip() for line in raw_data.split("\n") if line.strip()]
             
-            # 2. Tách lấy các con số Keno thực tế
-            nums = [int(s) for s in line.replace(",", " ").split() if s.isdigit()]
+        for idx, block in enumerate(blocks):
+            # Trích xuất toàn bộ các chuỗi gồm 2 chữ số hoặc số nguyên
+            nums = [int(n) for n in re.findall(r'\b\d{1,2}\b', block)]
             
-            # Chỉ lấy đúng 20 số đầu tiên nếu chuỗi hợp lệ
-            if len(nums) >= 20:
-                nums = nums[:20]
+            # Lọc các số hợp lệ trong khoảng Keno (1 đến 80)
+            valid_nums = [n for n in nums if 1 <= n <= 80]
+            
+            # Chỉ lấy đúng 20 số đầu tiên của kỳ đó
+            if len(valid_nums) >= 20:
+                keno_20 = valid_nums[:20]
                 parsed_rows.append({
                     "Kỳ Xổ": f"#Ký_{idx+1}",
                     "Chẵn/Lẻ": "Tự động",
                     "Lớn/Nhỏ": "Tự động",
-                    "20 Con Số Thực Tế (Phân cách dấu phẩy)": ", ".join([f"{n:02d}" for n in nums])
+                    "20 Con Số Thực Tế (Phân cách dấu phẩy)": ", ".join([f"{n:02d}" for n in keno_20])
                 })
         
+        # 3. Cập nhật vào Session State nếu đủ từ 5 kỳ trở lên
         if len(parsed_rows) >= 5:
             df_parsed = pd.DataFrame(parsed_rows[:5])
-            # Lưu vĩnh viễn vào Session State
             st.session_state.df_history_editor = df_parsed
-            st.session_state.history_matrix = build_matrix_from_df(df_parsed)
-            st.success("🎉 Đã phân tách & cập nhật thành công ma trận 5 kỳ!")
+            
+            # Gọi hàm tính toán lại ma trận & thuật toán gợi ý cặp Bậc 2
+            if 'build_matrix_from_df' in globals():
+                st.session_state.history_matrix = build_matrix_from_df(df_parsed)
+                
+            st.success("🎉 Đã phân tách & nạp thành công ma trận 5 kỳ!")
             st.rerun()
         else:
             st.error(f"❌ Chỉ phân tách được {len(parsed_rows)}/5 kỳ hợp lệ. Vui lòng kiểm tra lại dữ liệu đầu vào!")
-
 # TAB 2: FORM CẬP NHẬT KỲ THỰC TẾ & KHUYẾN NGHỊ VỐN
 with tab2:
     st.subheader("Cập nhật 20 số thực tế của kỳ vừa quay")
