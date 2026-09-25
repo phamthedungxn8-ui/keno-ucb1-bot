@@ -6,22 +6,26 @@ import streamlit as st
 st.set_page_config(page_title="Keno Multi-Agent Engine", layout="centered")
 
 # ==============================================================================
-# 1. HEURISTIC & MATHEMATICAL AGENTS
+# 1. MULTI-AGENT ENGINE (ĐÃ SỬA LỖI TRUẨN HÓA & KẸT SỐ)
 # ==============================================================================
 class AdvancedMetaAgent:
     def __init__(self, num_dim=80):
         self.D = num_dim
 
+    def _normalize(self, mat):
+        """Hàm chuẩn hóa ma trận về thang điểm [0, 1] để tránh 1 agent áp đảo các agent khác"""
+        max_val = np.max(mat)
+        if max_val > 0:
+            return mat / max_val
+        return mat
+
     def process(self, matrix):
-        """
-        matrix: numpy array shape (5, 80)
-        """
         T, D = matrix.shape
         freqs = matrix.sum(axis=0)
         hot_indices = np.where(freqs >= 2)[0]
         
         # ----------------------------------------------------------------------
-        # THUẬT TOÁN 1: Entanglement Impulse (Lực kéo hạt nhân lặp)
+        # AGENT 1: Entanglement Impulse (Lực kéo hạt nhân lặp)
         # ----------------------------------------------------------------------
         entangle_mat = np.zeros((D, D))
         for t in range(T):
@@ -34,52 +38,61 @@ class AdvancedMetaAgent:
                         if j in hot_indices: w += 1.5
                         entangle_mat[i, j] += w
         np.fill_diagonal(entangle_mat, 0)
+        entangle_mat = self._normalize(entangle_mat)
 
         # ----------------------------------------------------------------------
-        # THUẬT TOÁN 2: Holographic Distance Graph (Mạng khoảng cách toàn ảnh)
+        # AGENT 2: Holographic Distance Graph (Mạng khoảng cách)
         # ----------------------------------------------------------------------
         holo_mat = np.zeros((D, D))
         for t in range(T):
             active = np.where(matrix[t] == 1)[0]
-            # Tính hiệu số khoảng cách giữa các con số
-            diffs = [abs(active[a] - active[b]) for a in range(len(active)) for b in range(a+1, len(active))]
-            common_diff = max(set(diffs), key=diffs.count) if diffs else 0
-            
-            for i in active:
-                for j in active:
-                    if i != j and abs(i - j) == common_diff:
-                        holo_mat[i, j] += 2.0
+            if len(active) > 1:
+                diffs = [abs(active[a] - active[b]) for a in range(len(active)) for b in range(a+1, len(active))]
+                if diffs:
+                    common_diff = max(set(diffs), key=diffs.count)
+                    for i in active:
+                        for j in active:
+                            if i != j and abs(i - j) == common_diff:
+                                holo_mat[i, j] += 1.0
         np.fill_diagonal(holo_mat, 0)
+        holo_mat = self._normalize(holo_mat)
 
         # ----------------------------------------------------------------------
-        # THUẬT TOÁN 3: SVD Low-Rank Noise Reduction (Phân rã lọc nhiễu SVD)
+        # AGENT 3: SVD Low-Rank Signal Extraction (Lọc tín hiệu chuẩn xác)
         # ----------------------------------------------------------------------
+        svd_mat = np.zeros((D, D))
         try:
             U, S, Vt = np.linalg.svd(matrix, full_matrices=False)
-            # Chỉ giữ lại thành phần tín hiệu chủ đạo (Rank-1/Rank-2)
             S_clean = np.zeros_like(S)
             S_clean[0] = S[0]
-            if len(S) > 1: S_clean[1] = S[1]
+            if len(S) > 1: 
+                S_clean[1] = S[1]
             clean_matrix = np.dot(U, np.dot(np.diag(S_clean), Vt))
-            svd_mat = np.dot(clean_matrix.T, clean_matrix)
+            
+            # Lấy tích ma trận và triệt tiêu các giá trị âm (Chỉ lấy phần tương quan dương)
+            svd_raw = np.dot(clean_matrix.T, clean_matrix)
+            svd_mat = np.maximum(svd_raw, 0)
             np.fill_diagonal(svd_mat, 0)
-        except DistributionError:
+        except (np.linalg.LinAlgError, ValueError):
             svd_mat = np.zeros((D, D))
+            
+        svd_mat = self._normalize(svd_mat)
 
         # ----------------------------------------------------------------------
-        # TỔNG HỢP CỘNG HƯỞNG (Consensus Matrix)
+        # TỔNG HỢP CỘNG HƯỞNG BÌNH CHỌN (Đồng đều giữa các Agent)
         # ----------------------------------------------------------------------
-        final_operator = entangle_mat + 1.2 * holo_mat + 1.5 * svd_mat
+        final_operator = 1.2 * entangle_mat + 1.0 * holo_mat + 0.8 * svd_mat
         np.fill_diagonal(final_operator, 0)
 
+        # Tìm tọa độ cặp số điểm cao nhất
         i, j = np.unravel_index(np.argmax(final_operator, axis=None), final_operator.shape)
         num1, num2 = sorted([int(i + 1), int(j + 1)])
         score = float(final_operator[i, j])
 
         hot_str = ", ".join([f"{h+1:02d}" for h in hot_indices]) if len(hot_indices) > 0 else "Không có"
         explanation = (
-            f"Hạt nhân lặp: [{hot_str}] | "
-            f"Hệ thống Multi-Agent (Entanglement + Holographic Graph + SVD) đã đồng thuận chọn cặp ({num1:02d}, {num2:02d})."
+            f"Hạt nhân lặp phát hiện: [{hot_str}] | "
+            f"Hệ thống đã chuẩn hóa thang điểm và chốt cặp ({num1:02d}, {num2:02d}) theo sự đồng thuận đa tầng."
         )
 
         return (num1, num2), score, explanation
@@ -88,7 +101,7 @@ class AdvancedMetaAgent:
 # 2. STREAMLIT UI
 # ==============================================================================
 st.title("⚡ Multi-Agent Keno Engine")
-st.caption("Tích hợp SVD Lọc nhiễu • Holographic Graph • Lực kéo Entanglement")
+st.caption("Đã tối ưu chuẩn hóa thang điểm Agent • Chống kẹt số mẫu")
 
 raw_text_input = st.text_area(
     "Dán chuỗi số 5 kỳ (mỗi kỳ 1 dòng hoặc dán liên tục):",
@@ -130,8 +143,8 @@ if raw_text_input.strip():
             )
         with col2:
             st.metric(
-                label="Chỉ Số Đồng Thuận (Consensus)",
-                value=f"{score:.2f}"
+                label="Chỉ Số Đồng Thuận (Normalized)",
+                value=f"{score:.3f}"
             )
             
         st.info(f"🧠 **Phán đoán tổng hợp:** {explanation}")
