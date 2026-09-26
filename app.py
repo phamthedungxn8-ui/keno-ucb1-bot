@@ -3,98 +3,89 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="Keno Advanced Algorithmic Engine", layout="centered")
+st.set_page_config(page_title="Keno Micro-Link Engine", layout="centered")
 
 # ==============================================================================
-# OPTIMIZED MULTI-ALGORITHMIC PIPELINE
+# ULTRA MICRO-CORRELATION ENGINE
 # ==============================================================================
-class KenoAlgorithmicOptimizer:
+class MicroLinkKenoEngine:
     def __init__(self, num_dim=80):
         self.D = num_dim
 
     def _normalize(self, mat):
-        """Standardize scoring matrix to [0, 1] range"""
         max_val = np.max(mat)
         if max_val > 0:
             return mat / max_val
         return mat
 
-    def _build_decay_matrix(self, raw_matrix):
-        """
-        Tối ưu Dữ liệu Đầu vào: Gán trọng số giảm dần theo thời gian (Time Decay)
-        Các kỳ gần nhất sẽ có ảnh hưởng mạnh hơn các kỳ xa.
-        """
+    # --------------------------------------------------------------------------
+    # 1. THUẬT TOÁN BÁT MỐI VI MÔ (MICRO CONDITIONAL PROBABILITY)
+    # --------------------------------------------------------------------------
+    def _engine_micro_bayes(self, raw_matrix):
+        """Bắt các mối liên kết xác suất dù nhỏ nhất giữa từng cặp số"""
         T, D = raw_matrix.shape
-        decay_weights = np.exp(np.linspace(-0.5, 0, T))  # Trọng số tăng dần về kỳ gần nhất
-        decay_matrix = raw_matrix * decay_weights[:, np.newaxis]
-        return decay_matrix
+        mat = np.zeros((D, D))
+        freqs = raw_matrix.sum(axis=0)
+        
+        for i in range(D):
+            for j in range(D):
+                if i != j and freqs[i] > 0:
+                    # Tỉ lệ số j xuất hiện khi số i xuất hiện P(J|I)
+                    co_occur = np.sum(raw_matrix[:, i] * raw_matrix[:, j])
+                    mat[i, j] = co_occur / freqs[i]
+                    
+        return self._normalize(mat)
 
     # --------------------------------------------------------------------------
-    # THUẬT TOÁN 1: Entanglement với Time-Decay
+    # 2. THUẬT TOÁN NHỊP SINH HỌC KHÔNG GIAN (MANHATTAN EMBEDDING DISTANCE)
     # --------------------------------------------------------------------------
-    def _engine_weighted_entanglement(self, decay_matrix, hot_indices):
-        T, D = decay_matrix.shape
+    def _engine_spatial_embedding(self, raw_matrix):
+        """Đo độ tương đồng không gian vector 5 chiều giữa 80 con số"""
+        T, D = raw_matrix.shape
         mat = np.zeros((D, D))
-        for t in range(T):
-            active = np.where(decay_matrix[t] > 0)[0]
-            weight_factor = decay_matrix[t, active[0]] if len(active) > 0 else 1.0
-            for i in active:
-                for j in active:
-                    if i != j:
-                        w = weight_factor
-                        if i in hot_indices: w += 1.0
-                        if j in hot_indices: w += 1.0
-                        mat[i, j] += w
+        
+        for i in range(D):
+            for j in range(i + 1, D):
+                # Tính khoảng cách Manhattan giữa 2 vector thời gian của 2 số
+                vec_i = raw_matrix[:, i]
+                vec_j = raw_matrix[:, j]
+                dist = np.sum(np.abs(vec_i - vec_j))
+                
+                # Khoảng cách càng nhỏ (dist -> 0) nghĩa là 2 số chuyển động càng giống nhau
+                similarity = 1.0 / (1.0 + dist)
+                mat[i, j] = similarity
+                mat[j, i] = similarity
+                
         np.fill_diagonal(mat, 0)
         return self._normalize(mat)
 
     # --------------------------------------------------------------------------
-    # THUẬT TOÁN 2: Jaccard Similarity (Đo độ tương đồng tập hợp)
+    # 3. THUẬT TOÁN KÉO THEO CHUỖI THỜI GIAN TRƯỢT (SLIDING TIME CONVOLUTION)
     # --------------------------------------------------------------------------
-    def _engine_jaccard_similarity(self, raw_matrix):
+    def _engine_time_sliding_lead(self, raw_matrix):
+        """Quét xem số xuất hiện ở kỳ t có kéo theo số khác ở kỳ t+1 hay không"""
         T, D = raw_matrix.shape
         mat = np.zeros((D, D))
-        for i in range(D):
-            for j in range(i + 1, D):
-                col_i = raw_matrix[:, i]
-                col_j = raw_matrix[:, j]
-                intersection = np.sum(np.logical_and(col_i, col_j))
-                union = np.sum(np.logical_or(col_i, col_j))
-                if union > 0:
-                    sim = intersection / union
-                    mat[i, j] = sim
-                    mat[j, i] = sim
+        
+        for t in range(T - 1):
+            active_t = np.where(raw_matrix[t] == 1)[0]
+            active_next = np.where(raw_matrix[t + 1] == 1)[0]
+            
+            for i in active_t:
+                for j in active_next:
+                    if i != j:
+                        mat[i, j] += 1.0 + (t * 0.2) # Kỳ càng gần trọng số càng cao
+                        
         return self._normalize(mat)
 
     # --------------------------------------------------------------------------
-    # THUẬT TOÁN 3: Graph Laplacian Spectral Analysis (Lọc cụm liên kết)
+    # 4. SVD & LAPLACIAN BỔ TRỢ KHỦ NHIỄU
     # --------------------------------------------------------------------------
-    def _engine_spectral_laplacian(self, raw_matrix):
-        # Tạo ma trận kề (Adjacency Matrix)
-        adj = np.dot(raw_matrix.T, raw_matrix)
-        np.fill_diagonal(adj, 0)
-        
-        # Tính Ma trận Bậc (Degree Matrix)
-        degrees = np.sum(adj, axis=1)
-        deg_mat = np.diag(degrees)
-        
-        # Ma trận Laplacian L = D - A
-        laplacian = deg_mat - adj
-        
-        # Chiếu tín hiệu qua Laplacian để tìm vùng năng lượng liên kết tối ưu
-        spectral_mat = np.dot(adj, np.linalg.pinv(laplacian + np.eye(self.D) * 1e-5))
-        spectral_mat = np.maximum(spectral_mat, 0)
-        np.fill_diagonal(spectral_mat, 0)
-        return self._normalize(spectral_mat)
-
-    # --------------------------------------------------------------------------
-    # THUẬT TOÁN 4: SVD Low-Rank Approximation (Khử nhiễu không gian)
-    # --------------------------------------------------------------------------
-    def _engine_svd_denoise(self, decay_matrix):
-        D = decay_matrix.shape[1]
+    def _engine_spectral_svd(self, raw_matrix):
+        D = raw_matrix.shape[1]
         mat = np.zeros((D, D))
         try:
-            U, S, Vt = np.linalg.svd(decay_matrix, full_matrices=False)
+            U, S, Vt = np.linalg.svd(raw_matrix, full_matrices=False)
             S_clean = np.zeros_like(S)
             S_clean[0] = S[0]
             if len(S) > 1: S_clean[1] = S[1]
@@ -107,37 +98,28 @@ class KenoAlgorithmicOptimizer:
         return self._normalize(mat)
 
     # --------------------------------------------------------------------------
-    # TỔNG HỢP VÀ LỌC ĐA TẦNG
+    # PIPELINE TỔNG HỢP VỚI CƠ CHẾ BẢO TỒN VI LIÊN KẾT
     # --------------------------------------------------------------------------
     def process(self, raw_matrix):
         T, D = raw_matrix.shape
         freqs = raw_matrix.sum(axis=0)
         hot_indices = np.where(freqs >= 2)[0]
 
-        # 1. Tiền xử lý dữ liệu đầu vào với Time Decay
-        decay_matrix = self._build_decay_matrix(raw_matrix)
+        # 1. Chạy 4 Engine quét liên kết
+        e_bayes = self._engine_micro_bayes(raw_matrix)
+        e_embed = self._engine_spatial_embedding(raw_matrix)
+        e_slide = self._engine_time_sliding_lead(raw_matrix)
+        e_svd = self._engine_spectral_svd(raw_matrix)
 
-        # 2. Chạy 4 Engine thuật toán song song
-        e1 = self._engine_weighted_entanglement(decay_matrix, hot_indices)
-        e2 = self._engine_jaccard_similarity(raw_matrix)
-        e3 = self._engine_spectral_laplacian(raw_matrix)
-        e4 = self._engine_svd_denoise(decay_matrix)
+        # 2. Tổng hợp ma trận điểm không bỏ sót liên kết nhỏ
+        # Gán trọng số cao cho Bayes vi mô và Nhịp sinh học không gian
+        fused_matrix = 1.8 * e_bayes + 1.5 * e_embed + 1.2 * e_slide + 0.8 * e_svd
+        np.fill_diagonal(fused_matrix, 0)
 
-        # 3. Kết hợp có trọng số (Fusion Operator)
-        fused_matrix = 1.5 * e1 + 1.2 * e2 + 1.0 * e3 + 0.8 * e4
+        # 3. Lắng lọc vi mô (Soft Thresholding - Không dùng Percentile cứng để tránh mất liên kết yếu)
+        fused_matrix = np.power(fused_matrix, 1.2) # Khuếch đại nhẹ tín hiệu nổi bật mà vẫn giữ tín hiệu yếu
 
-        # 4. Tầng lọc loại bỏ nhiễu (Filtering Chain)
-        co_occur = np.dot(raw_matrix.T, raw_matrix)
-        fused_matrix[co_occur == 0] *= 0.1  # Phạt nặng các cặp số chưa từng đi cùng nhau trong quá khứ
-
-        # Triệt tiêu 80% nhiễu điểm thấp
-        threshold = np.percentile(fused_matrix, 80)
-        fused_matrix[fused_matrix < threshold] = 0
-
-        if np.max(fused_matrix) == 0:
-            fused_matrix = e1 + e2
-
-        # Chốt kết quả cặp Bậc 2
+        # Chốt vị trí cặp Bậc 2 tối ưu
         i, j = np.unravel_index(np.argmax(fused_matrix, axis=None), fused_matrix.shape)
         num1, num2 = sorted([int(i + 1), int(j + 1)])
         final_score = float(fused_matrix[i, j])
@@ -145,10 +127,10 @@ class KenoAlgorithmicOptimizer:
         hot_str = ", ".join([f"{h+1:02d}" for h in hot_indices]) if len(hot_indices) > 0 else "Không có"
         explanation = (
             f"**Hạt nhân lặp:** [{hot_str}]\n\n"
-            f"**Quy trình phân tích thuật toán:**\n"
-            f"1. *Xử lý đầu vào:* Áp dụng Ma trận Suy giảm Thời gian (Time Decay) cho 5 kỳ gần nhất.\n"
-            f"2. *Kết hợp Thuật toán:* Tích hợp Lực kéo Lặp, Tương đồng Jaccard, Phổ đồ thị Laplacian & SVD Lọc nhiễu.\n"
-            f"3. *Kết quả:* Cặp số **({num1:02d}, {num2:02d})** đạt điểm cộng hưởng thống kê cao nhất."
+            f"**Các vi liên kết được phát hiện:**\n"
+            f"• *Micro Bayes & Spatial Embedding:* Phát hiện chuyển động tương đồng giữa ({num1:02d}) và ({num2:02d}) trong không gian vector 5 chiều.\n"
+            f"• *Sliding Window:* Bắt trọn độ trễ xuất hiện nối tiếp giữa các kỳ liên tiếp.\n"
+            f"• *Kết luận:* Cặp số **({num1:02d}, {num2:02d})** sở hữu chỉ số liên kết vi mô tối ưu nhất."
         )
 
         return (num1, num2), final_score, explanation
@@ -156,8 +138,8 @@ class KenoAlgorithmicOptimizer:
 # ==============================================================================
 # STREAMLIT UI
 # ==============================================================================
-st.title("⚡ Keno Optimized Algorithmic Engine")
-st.caption("Tối ưu hóa dữ liệu đầu vào Time-Decay • Spectral Laplacian • Jaccard • SVD")
+st.title("⚡ Keno Micro-Link Engine")
+st.caption("Khảo sát các liên kết vi mô • Spatial Manhattan Embedding • Bayes Probability")
 
 raw_text_input = st.text_area(
     "Dán chuỗi số 5 kỳ (mỗi kỳ 1 dòng hoặc dán liên tục):",
@@ -182,13 +164,13 @@ if raw_text_input.strip():
             for num in ky_nums:
                 matrix[k, num - 1] = 1.0
                 
-        st.success("🎉 Đã tối ưu hóa vector đầu vào và tính toán hệ thống thuật toán!")
+        st.success("🎉 Hệ thống đã quét toàn bộ các vi liên kết trong 5 kỳ!")
         
-        optimizer = KenoAlgorithmicOptimizer(num_dim=80)
-        best_pair, score, explanation = optimizer.process(matrix)
+        engine = MicroLinkKenoEngine(num_dim=80)
+        best_pair, score, explanation = engine.process(matrix)
         
         st.markdown("---")
-        st.subheader("🎯 CẶP BẬC 2 TỐI ƯU NHẤT")
+        st.subheader("🎯 CẶP BẬC 2 PHÁT HIỆN TỪ VI LIÊN KẾT")
         
         col1, col2 = st.columns(2)
         with col1:
@@ -198,7 +180,7 @@ if raw_text_input.strip():
             )
         with col2:
             st.metric(
-                label="Điểm Cộng Hưởng Thuật Toán",
+                label="Điểm Vi Liên Kết (Micro Score)",
                 value=f"{score:.3f}"
             )
             
@@ -206,4 +188,4 @@ if raw_text_input.strip():
     else:
         st.warning(f"⚠️ Mới nhận diện được {len(all_numbers)} số ({total_kies}/5 kỳ). Vui lòng dán đủ 5 kỳ (100 số)!")
 else:
-    st.info("👆 Hãy dán chuỗi số 5 kỳ vào khung phía trên để kích hoạt mô hình tối ưu.")
+    st.info("👆 Dán chuỗi số 5 kỳ vào khung phía trên để kích hoạt bộ quét vi liên kết.")
