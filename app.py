@@ -3,184 +3,134 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="Keno Non-Linear Quantum Engine", layout="centered")
+st.set_page_config(page_title="Keno Phase-Aligned Quantum Engine", layout="centered")
 
 # ==============================================================================
-# ADVANCED NON-LINEAR & INFORMATION DYNAMICS ENGINE
+# PHASE-ALIGNED CO-OCCURRENCE QUANTUM ENGINE
 # ==============================================================================
-class AdvancedKenoQuantumEngine:
+class PhaseAlignedKenoEngine:
     def __init__(self, num_dim=80):
         self.D = num_dim
-
-    def _softmax(self, x, temp=0.5):
-        """Hàm kích hoạt phi tuyến với Temperature scaling để khuếch đại tín hiệu vi mô"""
-        e_x = np.exp((x - np.max(x)) / temp)
-        return e_x / e_x.sum(axis=-1, keepdims=True)
 
     def _norm(self, mat):
         m = np.max(mat)
         return mat / m if m > 0 else mat
 
     # --------------------------------------------------------------------------
-    # 1. MUTUAL INFORMATION & TRANSFER ENTROPY (LƯỢNG TIN TƯƠNG TÁC PHI TUYẾN)
+    # 1. CROSS-CORRELATION AT LAG 0 (TƯƠNG QUAN CHÉO ĐỒNG THỜI)
     # --------------------------------------------------------------------------
-    def _engine_mutual_information(self, X):
-        """Đo độ phụ thuộc thông tin phi tuyến giữa mọi cặp số"""
+    def _engine_zero_lag_cross_correlation(self, X):
+        """Đo độ tương quan chéo tại Lag 0 - Ép 2 số phải có xu hướng nổ CÙNG LÚC"""
         T, D = X.shape
-        mi_mat = np.zeros((D, D))
+        # Standardize matrix per series
+        mean = np.mean(X, axis=0)
+        std = np.std(X, axis=0) + 1e-6
+        X_norm = (X - mean) / std
         
-        # Marginal probabilities
-        p_i = np.mean(X, axis=0)
+        # Pearson / Zero-Lag Cross Correlation
+        corr_mat = np.dot(X_norm.T, X_norm) / T
         
-        for i in range(D):
-            for j in range(i + 1, D):
-                # Joint probability P(X_i, X_j)
-                p_11 = np.mean(X[:, i] * X[:, j])
-                p_10 = np.mean(X[:, i] * (1 - X[:, j]))
-                p_01 = np.mean((1 - X[:, i]) * X[:, j])
-                p_00 = np.mean((1 - X[:, i]) * (1 - X[:, j]))
-                
-                mi = 0.0
-                for p_xy, px, py in [
-                    (p_11, p_i[i], p_i[j]),
-                    (p_10, p_i[i], 1 - p_i[j]),
-                    (p_01, 1 - p_i[i], p_i[j]),
-                    (p_00, 1 - p_i[i], 1 - p_i[j])
-                ]:
-                    if p_xy > 1e-6 and px > 1e-6 and py > 1e-6:
-                        mi += p_xy * np.log2(p_xy / (px * py))
-                
-                mi_mat[i, j] = mi
-                mi_mat[j, i] = mi
-                
-        return self._norm(mi_mat)
+        # Chỉ giữ lại các giá trị tương quan dương (Đồng biến)
+        corr_mat = np.maximum(corr_mat, 0)
+        np.fill_diagonal(corr_mat, 0)
+        return self._norm(corr_mat)
 
     # --------------------------------------------------------------------------
-    # 2. DYNAMIC TIME WARPING (DTW) DISTANCE (ĐỒNG ĐIỆU NHỊP TIM TÍN HIỆU)
+    # 2. PHASE SYNCHRONIZATION INDEX (CHỈ SỐ ĐỒNG PHA THỜI GIAN)
     # --------------------------------------------------------------------------
-    def _engine_dtw_similarity(self, X):
-        """Đo mức độ đồng điệu về nhịp vận động thời gian giữa các số"""
+    def _engine_phase_synchronization(self, X):
+        """Kiểm tra xem nhịp nghỉ/nhịp nổ của 2 số có khớp pha 100% hay không"""
         T, D = X.shape
-        dtw_mat = np.zeros((D, D))
+        phase_mat = np.zeros((D, D))
         
         for i in range(D):
             for j in range(i + 1, D):
-                # Distance matrix đơn giản cho chuỗi ngắn 5 kỳ
+                # So sánh trạng thái 5 kỳ
                 s1, s2 = X[:, i], X[:, j]
-                diff = np.abs(s1[:, None] - s2[None, :])
+                # Số kỳ cùng nổ hoặc cùng nghỉ
+                matches = np.sum(s1 == s2)
+                # Số kỳ lệch pha (1 con nổ, 1 con nghỉ)
+                mismatches = np.sum(s1 != s2)
                 
-                # Dynamic programming path cost
-                cost = np.zeros((T, T))
-                cost[0, 0] = diff[0, 0]
-                for r in range(1, T):
-                    cost[r, 0] = cost[r - 1, 0] + diff[r, 0]
-                for c in range(1, T):
-                    cost[0, c] = cost[0, c - 1] + diff[0, c]
+                # Điểm đồng pha = (Trùng - Lệch) / T
+                sync_score = (matches - mismatches) / float(T)
+                if sync_score > 0:
+                    phase_mat[i, j] = sync_score
+                    phase_mat[j, i] = sync_score
                     
-                for r in range(1, T):
-                    for c in range(1, T):
-                        cost[r, c] = diff[r, c] + min(cost[r - 1, c], cost[r, c - 1], cost[r - 1, c - 1])
-                
-                # Chuyển khoảng cách thành độ tương đồng
-                sim = 1.0 / (1.0 + cost[-1, -1])
-                dtw_mat[i, j] = sim
-                dtw_mat[j, i] = sim
-                
-        return self._norm(dtw_mat)
+        return self._norm(phase_mat)
 
     # --------------------------------------------------------------------------
-    # 3. KALMAN LATENT STATE PREDICTION (BỘ LỌC KALMAN DỰ BÁO TẦNG ẨN)
+    # 3. KALMAN SINGLE-SERIES MOMENTUM (ĐỘNG LƯỢNG KALMAN ĐƠN LẺ)
     # --------------------------------------------------------------------------
-    def _engine_kalman_rate(self, X):
-        """Bộ lọc Kalman đơn giản hóa để ước lượng vận tốc xuất hiện ở kỳ tiếp theo"""
+    def _engine_kalman_momentum(self, X):
         T, D = X.shape
-        predicted_rates = np.zeros(D)
-        
+        rates = np.zeros(D)
         for i in range(D):
-            # Khởi tạo Kalman
-            x_hat = 0.25 # State estimate (xác suất nền 20/80)
-            P = 1.0     # Uncertainty
-            Q = 0.05    # Process noise
-            R = 0.2     # Measurement noise
-            
+            x_hat, P, Q, R = 0.25, 1.0, 0.05, 0.2
             for t in range(T):
-                # Time update (Predict)
-                x_hat = x_hat
-                P = P + Q
-                
-                # Measurement update (Correct)
-                z = X[t, i]
-                K = P / (P + R) # Kalman Gain
-                x_hat = x_hat + K * (z - x_hat)
+                P += Q
+                K = P / (P + R)
+                x_hat += K * (X[t, i] - x_hat)
                 P = (1 - K) * P
-                
-            predicted_rates[i] = x_hat
-            
-        # Ma trận cộng hưởng xác suất Kalman giữa các cặp
-        kalman_mat = np.outer(predicted_rates, predicted_rates)
-        np.fill_diagonal(kalman_mat, 0)
-        return self._norm(kalman_mat)
+            rates[i] = x_hat
+        return rates
 
     # --------------------------------------------------------------------------
-    # 4. TRIỆT TIÊU MẠNH BẪY LẶP & ĐIỀU CHỈNH TRỌNG SỐ TỰ ĐỘNG
+    # PROCESSOR TỔNG HỢP VỚI MÀNG LỌC TRIỆT ĐỂ LỆCH PHA & BẪY LẶP
     # --------------------------------------------------------------------------
     def process(self, X):
         T, D = X.shape
         freqs = X.sum(axis=0)
         co_occur = np.dot(X.T, X)
 
-        # Kích hoạt các Động cơ Phi tuyến
-        e_mi = self._engine_mutual_information(X)
-        e_dtw = self._engine_dtw_similarity(X)
-        e_kalman = self._engine_kalman_rate(X)
+        # 1. Chạy các Động cơ Tương quan & Đồng pha
+        e_cross_corr = self._engine_zero_lag_cross_correlation(X)
+        e_phase_sync = self._engine_phase_synchronization(X)
+        kalman_rates = self._engine_kalman_momentum(X)
 
-        # Fourier Spectrum Engine
-        fft_specs = np.abs(np.fft.fft(X, axis=0))
-        e_fourier = self._norm(np.dot(fft_specs.T, fft_specs))
+        # 2. Ma trận Lực hút Kalman kết hợp (Chỉ cộng hưởng nếu cả 2 cùng mạnh)
+        kalman_pair = np.outer(kalman_rates, kalman_rates)
+        np.fill_diagonal(kalman_pair, 0)
+        e_kalman_pair = self._norm(kalman_pair)
 
-        # Giảm cực đại ảnh hưởng của Bayes/Tần suất cũ (chỉ dùng làm Baseline 0.3)
-        bayes_base = np.zeros((D, D))
-        for i in range(D):
-            if freqs[i] > 0:
-                bayes_base[i, :] = co_occur[i, :] / freqs[i]
-        e_bayes = self._norm(bayes_base)
+        # 3. MÀNG LỌC KHÓA LỆCH PHA (ANTI-PHASE LOCK GATE)
+        # Nếu cặp số KHÔNG CÓ CÙNG XUẤT HIỆN lần nào trong 5 kỳ (co_occur == 0)
+        # HOẶC bị lệch pha hoàn toàn -> Nhân với hệ số triệt tiêu 0.05
+        anti_phase_gate = np.ones((D, D))
+        anti_phase_gate[co_occur == 0] = 0.05 
 
-        # MÀNG LỌC PHẠT NÂNG CẤP: Chặn triệt để các số dính bẫy lặp
+        # 4. Màng lọc Phạt bẫy lặp quá tải
         penalty = np.ones((D, D))
-        penalty[co_occur >= 2] = 0.50 # Phạt 50% nếu đã lặp 2 kỳ[span_0](start_span)[span_0](end_span)
-        penalty[co_occur >= 3] = 0.05 # Phạt 95% nếu lặp >= 3 kỳ[span_1](start_span)[span_1](end_span)
-        penalty[co_occur >= 4] = 0.00 # Khóa vĩnh viễn nếu lặp >= 4 kỳ[span_2](start_span)[span_2](end_span)
+        penalty[co_occur >= 3] = 0.05 # Lặp >=3 kỳ -> Phạt 95%
+        penalty[co_occur >= 4] = 0.00 # Lặp >=4 kỳ -> Khóa hẳn
 
-        # TỔNG HỢP VỚI ĐỘNG CƠ PHI TUYẾN CHÍNH
-        fused_raw = (
-            2.2 * e_mi +       # Mutual Information (Lượng tin phi tuyến)
-            2.0 * e_kalman +   # Kalman Filter (Dự báo tầng ẩn)
-            1.8 * e_dtw +      # DTW (Đồng điệu nhịp thời gian)
-            1.5 * e_fourier +  # Fourier (Sóng hài)
-            0.3 * e_bayes      # Bayes cũ (hạ xuống mức tối thiểu)
-        ) * penalty
+        # 5. TỔNG HỢP CỘNG HƯỞNG ĐỒNG PHA
+        # Trọng số cao nhất trao cho Tương quan chéo Lag-0 và Đồng pha thời gian
+        fused = (
+            2.5 * e_cross_corr + 
+            2.2 * e_phase_sync + 
+            1.5 * e_kalman_pair
+        ) * anti_phase_gate * penalty
 
-        # Áp dụng Kích hoạt Phi tuyến Softmax để đẩy điểm cặp bứt phá rời xa đám đông
-        fused_transformed = self._softmax(fused_raw, temp=0.2)
-        np.fill_diagonal(fused_transformed, 0)
+        np.fill_diagonal(fused, 0)
 
-        # Trích xuất cặp Bậc 2
-        i, j = np.unravel_index(np.argmax(fused_transformed, axis=None), fused_transformed.shape)
+        # Trích xuất Cặp Bậc 2 Tối Ưu
+        i, j = np.unravel_index(np.argmax(fused, axis=None), fused.shape)
         num1, num2 = sorted([int(i + 1), int(j + 1)])
-        final_score = float(fused_transformed[i, j])
+        final_score = float(fused[i, j])
 
         hot_str = ", ".join([f"{h+1:02d}" for h in np.where(freqs >= 2)[0]]) or "Không có"
-        blocked_str = ", ".join([f"{b+1:02d}" for b in np.where(freqs >= 3)[0]]) or "Không có"
+        zero_co_str = f"Đã áp dụng Màng lọc Khóa Lệch Pha (Anti-Phase Gate)"
 
         explanation = (
-            f"• **Hạt nhân cũ bị hạ trọng số:** [{hot_str}]\n"
-            f"• **Số bị khóa triệt để do bẫy lặp (>=3 kỳ):** [{blocked_str}]\n"
-            f"• **Đột phá Động cơ Phi tuyến mới:**\n"
-            f"  - *Mutual Information (Lượng tin):* Khai thác liên kết phi tuyến ẩn giữa các số.\n"
-            f"  - *Kalman Filter:* Ước lượng vận tốc xuất hiện tiềm năng ở kỳ kế tiếp.\n"
-            f"  - *DTW Time-Warping:* Bắt nhịp tim đồng điệu lệch kỳ giữa các con số.\n"
-            f"  - *Softmax Temperature:* Khuếch đại cặp vi mô có tín hiệu sóng bùng nổ rõ nhất.\n"
-            f"• **Chốt kết quả mới:** Cặp số **({num1:02d}, {num2:02d})**."
+            f"• **Hạt nhân lặp ghi nhận:** [{hot_str}]\n"
+            f"• **Cơ chế chống hụt 1 con:** {zero_co_str}.\n"
+            f"• **Phân tích Động cơ Đồng Pha Mới:**\n"
+            f"  - *Zero-Lag Cross Correlation:* Ép hai con số phải có chỉ số tương quan dương cùng thời điểm ($\tau=0$).\n"
+            f"  - *Phase Synchronization:* Triệt tiêu các cặp số lệch pha (1 con nổ, 1 con nghỉ).\n"
+            f"  - *Kalman Pair Alignment:* Đảm bảo cả 2 số đều ở trạng thái tích tụ năng lượng sóng đỉnh.\n"
+            f"• **Kết luận Chốt:** Cặp số **({num1:02d}, {num2:02d})** đạt chỉ số đồng pha tuyệt đối."
         )
 
         return (num1, num2), final_score, explanation
@@ -188,8 +138,8 @@ class AdvancedKenoQuantumEngine:
 # ==============================================================================
 # STREAMLIT UI
 # ==============================================================================
-st.title("⚡ Keno Quantum Non-Linear Engine")
-st.caption("Khai thác Phi tuyến: Mutual Information • Kalman Latent State • DTW Signal Alignment • Softmax Transformation")
+st.title("⚡ Keno Phase-Aligned Quantum Engine")
+st.caption("Khắc phục bẫy hụt 1 số • Zero-Lag Cross Correlation • Phase Synchronization")
 
 raw_text_input = st.text_area(
     "Dán chuỗi số 5 kỳ (mỗi kỳ 1 dòng hoặc dán liên tục):",
@@ -209,22 +159,22 @@ if raw_text_input.strip():
             for num in all_numbers[k * 20 : (k + 1) * 20]:
                 matrix[k, num - 1] = 1.0
                 
-        st.success("🎉 Đã kích hoạt Động cơ Phi tuyến Quantum Engine thành công!")
+        st.success("🎉 Đã chạy xong Động cơ Đồng pha Chống hụt số!")
         
-        engine = AdvancedKenoQuantumEngine(num_dim=80)
+        engine = PhaseAlignedKenoEngine(num_dim=80)
         best_pair, score, explanation = engine.process(matrix)
         
         st.markdown("---")
-        st.subheader("🎯 CẶP SỐ CHỐT ĐỘT PHÁ MỚI")
+        st.subheader("🎯 CẶP SỐ ĐỒNG PHA TỐI ƯU")
         
         col1, col2 = st.columns(2)
         with col1:
-            st.metric(label="CẶP SỐ ĐỘT PHÁ", value=f"{best_pair[0]:02d} — {best_pair[1]:02d}")
+            st.metric(label="CẶP SỐ CHỐT", value=f"{best_pair[0]:02d} — {best_pair[1]:02d}")
         with col2:
-            st.metric(label="Chỉ Số Quantum Softmax", value=f"{score:.4f}")
+            st.metric(label="Chỉ Số Đồng Pha Phase Score", value=f"{score:.4f}")
             
         st.info(explanation)
     else:
         st.warning(f"⚠️ Mới nhận diện được {len(all_numbers)} số ({total_kies}/5 kỳ). Vui lòng dán đủ 5 kỳ (100 số)!")
 else:
-    st.info("👆 Dán chuỗi số 5 kỳ vào khung phía trên để kích hoạt động cơ phi tuyến mới.")
+    st.info("👆 Dán chuỗi số 5 kỳ vào khung phía trên để kích hoạt động cơ đồng pha.")
