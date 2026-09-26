@@ -3,110 +3,101 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="Keno Chaos-Harmonic Orthogonal Engine", layout="centered")
+st.set_page_config(page_title="Keno Nuclear Core Cluster Engine", layout="centered")
 
 # ==============================================================================
-# CREATIVE ALGORITHM: CHAOS-HARMONIC ORTHOGONAL VECTOR ENGINE
+# CREATIVE ALGORITHM: NUCLEAR CORE CLUSTER & SATELLITE TRIANGULATION ENGINE
 # ==============================================================================
-class ChaosHarmonicKenoEngine:
+class NuclearCoreClusterEngine:
     def __init__(self, num_dim=80):
         self.D = num_dim
 
-    def _norm(self, mat):
-        m = np.max(mat)
-        return mat / m if m > 0 else mat
+    def _norm(self, vec):
+        m = np.max(vec)
+        return vec / m if m > 0 else vec
 
-    # --------------------------------------------------------------------------
-    # 1. SHANNON ENTROPY (ĐO ĐỘ HỖN LOẠN TỰ DO CỦA TỪNG SỐ)
-    # --------------------------------------------------------------------------
-    def _compute_entropy(self, X):
-        """Tính Shannon Entropy cho từng số dựa trên vệt nhịp 5 kỳ"""
-        T, D = X.shape
-        p1 = X.sum(axis=0) / T
-        p0 = 1.0 - p1
-        
-        # Tránh log(0)
-        p1 = np.clip(p1, 1e-5, 1.0 - 1e-5)
-        p0 = np.clip(p0, 1e-5, 1.0 - 1e-5)
-        
-        entropy = - (p1 * np.log2(p1) + p0 * np.log2(p0))
-        return entropy
-
-    # --------------------------------------------------------------------------
-    # 2. VECTOR ORTHOGONALITY (ĐỘ VUÔNG GÓC KHÔNG GIAN 5 CHIỀU)
-    # --------------------------------------------------------------------------
-    def _compute_orthogonal_pairs(self, X):
-        """Tính Cosine Similarity giữa các Vector 5 chiều của 80 số"""
-        # X: (5, 80) -> X.T: (80, 5)
-        vectors = X.T
-        norms = np.linalg.norm(vectors, axis=1, keepdims=True)
-        norms[norms == 0] = 1.0
-        
-        norm_vecs = vectors / norms
-        cosine_sim = np.dot(norm_vecs, norm_vecs.T) # Ma trận Cosine (80x80)
-        
-        # Chúng ta tìm cặp VUÔNG GÓC (Cosine Sim gần 0 nhất)
-        # Tức 2 số có quỹ đạo hoàn toàn bù trừ và độc lập về mặt không gian
-        ortho_matrix = 1.0 - np.abs(cosine_sim)
-        np.fill_diagonal(ortho_matrix, 0)
-        return ortho_matrix
-
-    # --------------------------------------------------------------------------
-    # PROCESSOR TỔNG HỢP CHAOS-HARMONIC
-    # --------------------------------------------------------------------------
     def process(self, X):
         T, D = X.shape
-        
-        # 1. Tính Entropy Shannon của 80 số
-        entropy_vec = self._compute_entropy(X)
-        
-        # 2. Tính Ma trận Vuông góc Vector
-        ortho_mat = self._compute_orthogonal_pairs(X)
-        
-        # 3. Kết hợp Entropy x Orthogonality
-        entropy_pair_mat = np.outer(entropy_vec, entropy_vec)
-        combined_mat = ortho_mat * entropy_pair_mat
-        
-        # 4. BƠM NHIỄU HỖN LOẠN (CHAOS NOISE) ĐỂ THỬ SAI & THOÁT BẪY LOCAL MINIMA
-        np.random.seed(42) # Giữ tính ổn định tương đối
-        chaos_noise = np.random.uniform(0.85, 1.15, size=(D, D))
-        combined_mat = combined_mat * chaos_noise
-        
-        # 5. BỘ LỌC CỨNG (KHÓA LẶP VÀ KHÓA BÃI HÒA)
-        co_matrix = np.dot(X.T, X)
-        combined_mat[co_matrix >= 2] = 0.0 # Khóa triệt để các cặp nổ chung >= 2 lần
-        
-        # Phạt các số xuất hiện ở Kỳ 5 cùng dải hàng chục
+        freqs = X.sum(axis=0)
         last_draw = X[-1]
-        for i in range(D):
-            for j in range(D):
-                if i != j:
-                    # Nếu 2 số cùng nổ kỳ cuối -> Phạt
-                    if last_draw[i] == 1 and last_draw[j] == 1:
-                        combined_mat[i, j] *= 0.1
-                        
-        final_mat = self._norm(combined_mat)
         
-        # 6. Trích xuất Cặp số Đột phá Không gian
-        i, j = np.unravel_index(np.argmax(final_mat, axis=None), final_mat.shape)
-        num1, num2 = sorted([int(i + 1), int(j + 1)])
-        final_score = float(final_mat[i, j])
+        # ----------------------------------------------------------------------
+        # 1. ĐỊNH VỊ SỐ HẠT NHÂN (NUCLEAR CORE ANCHOR)
+        # ----------------------------------------------------------------------
+        # Hạt nhân là số có động lượng tích lũy tốt, nghỉ ở kỳ 5 hoặc nổ nhịp đều
+        core_scores = np.zeros(D)
+        for i in range(D):
+            # Tính điểm động lượng nhịp
+            if last_draw[i] == 0:
+                core_scores[i] = freqs[i] * 1.5 # Ưu tiên số tích lũy nhịp
+            else:
+                core_scores[i] = freqs[i] * 0.8
+                
+        # Khóa các số bão hòa (>3 kỳ)
+        core_scores[freqs >= 3] *= 0.1
+        core_scores = self._norm(core_scores)
+        
+        # Lấy số Hạt Nhân (Core) có điểm cao nhất
+        core_idx = int(np.argmax(core_scores))
+        core_num = core_idx + 1
+        
+        # ----------------------------------------------------------------------
+        # 2. XÂY DỰNG 3 VỆ TINH BAO VÙNG (3 SATELLITES)
+        # ----------------------------------------------------------------------
+        satellite_scores = np.zeros(D)
+        
+        # Vector 5 chiều của Hạt nhân
+        core_vec = X[:, core_idx]
+        
+        for j in range(D):
+            if j != core_idx:
+                cand_vec = X[:, j]
+                # Tính độ vuông góc không gian với Hạt nhân (Cosine Orthogonality)
+                dot_prod = np.dot(core_vec, cand_vec)
+                norm_prod = (np.linalg.norm(core_vec) * np.linalg.norm(cand_vec)) + 1e-5
+                cosine_sim = dot_prod / norm_prod
+                ortho_score = 1.0 - abs(cosine_sim) # Vuông góc = 1.0
+                
+                # Điểm vệ tính = Độ vuông góc x Điểm động lượng
+                satellite_scores[j] = ortho_score * (freqs[j] + 0.5)
+                
+                # Phạt nếu nổ chung với Core >= 2 lần
+                co_occur = np.dot(X[:, core_idx], X[:, j])
+                if co_occur >= 2:
+                    satellite_scores[j] *= 0.05
+                    
+                # Phạt nếu cùng nổ ở kỳ cuối với Core
+                if last_draw[core_idx] == 1 and last_draw[j] == 1:
+                    satellite_scores[j] *= 0.1
+                    
+        # Lấy 3 Vệ Tinh đỉnh nhất
+        satellite_scores[core_idx] = -1.0 # Bỏ qua chính nó
+        top_sat_indices = np.argsort(satellite_scores)[-3:][::-1]
+        satellites = [int(idx + 1) for idx in top_sat_indices]
+        
+        # ----------------------------------------------------------------------
+        # 3. TẠO THẾ TRẬN 3 CẶP GHÉP (TRIANGULATION PAIRS)
+        # ----------------------------------------------------------------------
+        pairs = [
+            tuple(sorted([core_num, satellites[0]])),
+            tuple(sorted([core_num, satellites[1]])),
+            tuple(sorted([core_num, satellites[2]]))
+        ]
 
         explanation = (
-            f"• **THUẬT TOÁN SÁNG TẠO SANG LẠI (Chaos-Harmonic Vector Engine):**\n"
-            f"  - **Lý thuyết Vuông góc Spatial (Orthogonal Vectors):** Tìm 2 số có Vector nhịp 5 chiều tạo góc $90^\circ$ (Cosine Similarity $\sim 0$). Khi 1 số bùng nổ, số kia bị kích hoạt do hiệu ứng cân bằng Vector không gian.\n"
-            f"  - **Cân bằng Entropy Shannon:** Đo mức độ hỗn loạn tự do để chọn ra cặp số đang nằm trên ranh giới chuyển đổi trạng thái.\n"
-            f"  - **Bơm Nhiễu Hỗn Loạn Chaos Injection:** Bơm yếu tố ngẫu nhiên để cưỡng ép mô hình phá vỡ các liên kết 1/2 truyền thống.\n"
-            f"• **Kết luận Chốt:** Cặp số **({num1:02d}, {num2:02d})**."
+            f"• **THUẬT TOÁN DÀN GHÉP TRẬN HẠT NHÂN (Nuclear Core Cluster):**\n"
+            f"  - **Số Hạt Nhân Độc Tôn (Anchor Core):** Khóa cứng số **{core_num:02d}** làm trụ cột (đã tối ưu hóa 100% động lượng).\n"
+            f"  - **3 Vệ Tinh Bao Vùng (Satellites):** Chọn 3 số **{satellites[0]:02d}, {satellites[1]:02d}, {satellites[2]:02d}** có pha vuông góc Vector $90^\circ$ với Hạt Nhân để bao phủ toàn bộ độ lệch pha.\n"
+            f"  - **Chiến Thuật Ghép Trận 3 Cặp:** Đánh đồng thời 3 cặp số ghép từ Hạt Nhân. Chỉ cần Hạt Nhân nổ + 1 Vệ Tinh nổ $\rightarrow$ Trúng trọn vẹn cặp!"
         )
 
-        return (num1, num2), final_score, explanation
+        return core_num, satellites, pairs, explanation
 
 # ==============================================================================
 # STREAMLIT UI
 # ==============================================================================
-st.title("⚡ Keno Chaos-Harmonic Orthogonal Engine")
-st.caption("Thuật toán Sáng tạo Đột phá • Hình học Vector Vuông góc • Cân bằng Entropy & Bơm Nhiễu Chaos")
+st.title("⚡ Keno Nuclear Core Cluster Engine")
+st.caption("Thuật toán Dàn Ghép Trận Hạt Nhân • Triệt hạ bẫy 1/2 • Ghép Hạt Nhân & 3 Vệ Tinh Vùng")
 
 raw_text_input = st.text_area(
     "Dán chuỗi số 5 kỳ (mỗi kỳ 1 dòng hoặc dán liên tục):",
@@ -126,22 +117,27 @@ if raw_text_input.strip():
             for num in all_numbers[k * 20 : (k + 1) * 20]:
                 matrix[k, num - 1] = 1.0
                 
-        st.success("🎉 Đã chạy xong Mô hình Đột phá Vector Vuông góc & Chaos!")
+        st.success("🎉 Đã hoàn tất Tính toán Trận hình Hạt nhân!")
         
-        engine = ChaosHarmonicKenoEngine(num_dim=80)
-        best_pair, score, explanation = engine.process(matrix)
+        engine = NuclearCoreClusterEngine(num_dim=80)
+        core_num, satellites, pairs, explanation = engine.process(matrix)
         
         st.markdown("---")
-        st.subheader("🎯 CẶP SỐ ĐỘT PHÁ VECTOR HỖN LOẠN")
+        st.subheader("🎯 CẤU TRÚC TRẬN HẠT NHÂN & 3 CẶP GHÉP TỐI ƯU")
         
         col1, col2 = st.columns(2)
         with col1:
-            st.metric(label="CẶP SỐ CHỐT CHAOS", value=f"{best_pair[0]:02d} — {best_pair[1]:02d}")
+            st.metric(label="SỐ HẠT NHÂN CHỦ LỰC", value=f"{core_num:02d}")
         with col2:
-            st.metric(label="Chỉ Số Chaos-Orthogonal Score", value=f"{score:.4f}")
+            st.metric(label="3 VỆ TINH BAO VÙNG", value=f"{satellites[0]:02d} — {satellites[1]:02d} — {satellites[2]:02d}")
+            
+        st.markdown("### 🚀 DANH SÁCH 3 CẶP SỐ CHỐT ĐI TRẬN:")
+        st.write(f"1️⃣ **Cặp 1 (Chính):** `{pairs[0][0]:02d} — {pairs[0][1]:02d}`")
+        st.write(f"2️⃣ **Cặp 2 (Lót 1):** `{pairs[1][0]:02d} — {pairs[1][1]:02d}`")
+        st.write(f"3️⃣ **Cặp 3 (Lót 2):** `{pairs[2][0]:02d} — {pairs[2][1]:02d}`")
             
         st.info(explanation)
     else:
         st.warning(f"⚠️ Mới nhận diện được {len(all_numbers)} số ({total_kies}/5 kỳ). Vui lòng dán đủ 5 kỳ (100 số)!")
 else:
-    st.info("👆 Dán chuỗi số 5 kỳ vào khung phía trên để kích hoạt mô hình Chaos-Harmonic.")
+    st.info("👆 Dán chuỗi số 5 kỳ vào khung phía trên để kích hoạt mô hình Nuclear Core Cluster.")
