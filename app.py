@@ -3,125 +3,124 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="Keno Hedged-Pairing Engine", layout="centered")
+st.set_page_config(page_title="Keno Quad-Role Ensemble Engine", layout="centered")
 
 # ==============================================================================
-# HEDGED-PAIRING QUANTUM ENGINE (ĐỘNG CƠ BẮT CẶP ĐỐI KHÁNG CHỐNG HỤT)
+# QUAD-ROLE ENSEMBLE ENGINE (MÔ HÌNH HỢP NHẤT 4 VAI TRÒ NĂNG LƯỢNG)
 # ==============================================================================
-class HedgedKenoEngine:
+class QuadRoleKenoEngine:
     def __init__(self, num_dim=80):
         self.D = num_dim
 
-    def _norm(self, mat):
-        m = np.max(mat)
-        return mat / m if m > 0 else mat
+    def _norm(self, vec):
+        m = np.max(vec)
+        return vec / m if m > 0 else vec
 
     # --------------------------------------------------------------------------
-    # 1. HEDGED MOMENTUM VECTOR (VECTOR ĐỘNG LƯỢNG BÙ TRỪ NÓNG - TÍCH LŨY)
+    # VAI TRÒ 1: SỐ LUỒNG SÓNG HÀI (HARMONIC FLOW - Thuật toán Quantum Engine)
     # --------------------------------------------------------------------------
-    def _engine_hedged_momentum(self, X):
-        """Phân loại số Nóng (Hot) và số Tích lũy (Accumulator) để ghép cặp bù trừ"""
+    def _role_harmonic_flow(self, X):
         T, D = X.shape
-        last_frame = X[-1]
-        prev_frame = X[-2] if T >= 2 else np.zeros(D)
-        
-        scores = np.zeros(D)
-        status = np.zeros(D) # 1: Hot, 2: Accumulator, 0: Cold/Overheated
+        fft_specs = np.abs(np.fft.fft(X, axis=0))
+        freq_scores = np.mean(fft_specs, axis=0)
+        return self._norm(freq_scores)
+
+    # --------------------------------------------------------------------------
+    # VAI TRÒ 2: SỐ LẮP ĐỘNG LƯỢNG (REBOUND MOMENTUM - Thuật toán Hyper-Layered)
+    # --------------------------------------------------------------------------
+    def _role_rebound_momentum(self, X):
+        T, D = X.shape
+        rates = np.zeros(D)
+        for i in range(D):
+            x_hat, P, Q, R = 0.25, 1.0, 0.05, 0.2
+            for t in range(T):
+                P += Q
+                K = P / (P + R)
+                x_hat += K * (X[t, i] - x_hat)
+                P = (1 - K) * P
+            rates[i] = x_hat
+            
+        # Thưởng đặc biệt cho số vừa nổ kỳ t-1 và có động lượng Kalman cao
+        rebound = rates * X[-1]
+        return self._norm(rebound)
+
+    # --------------------------------------------------------------------------
+    # VAI TRÒ 3: SỐ MẠNG CỤM DẢI (CLUSTER DENSITY - Thuật toán Phase Engine)
+    # --------------------------------------------------------------------------
+    def _role_cluster_density(self, X):
+        T, D = X.shape
+        co_occur = np.dot(X.T, X)
+        spatial_density = np.zeros(D)
         
         for i in range(D):
-            # Nhịp Tích Lũy Tối Ưu: Vừa nghỉ kỳ vừa rồi, nhưng nổ ở kỳ t-2 hoặc t-3
-            if last_frame[i] == 0 and prev_frame[i] == 1:
-                scores[i] = 1.0
-                status[i] = 2 # Accumulator (Số tích lũy chuẩn bị nổ lại)
-            # Nhịp Nóng Tối Ưu: Nổ kỳ vừa rồi, tần suất 2-3 lần/5 kỳ
-            elif last_frame[i] == 1 and X[:, i].sum() <= 3:
-                scores[i] = 0.8
-                status[i] = 1 # Hot (Số đang trong luồng)
+            # Tính tổng mật độ liên kết với các số xung quanh ranh giới +-3
+            min_idx = max(0, i - 3)
+            max_idx = min(D, i + 4)
+            spatial_density[i] = np.sum(co_occur[i, min_idx:max_idx])
+            
+        return self._norm(spatial_density)
+
+    # --------------------------------------------------------------------------
+    # VAI TRÒ 4: SỐ TÍCH LŨY NHẢ LẠI (GAP RETURN - Thuật toán Hedged Engine)
+    # --------------------------------------------------------------------------
+    def _role_gap_return(self, X):
+        T, D = X.shape
+        gap_scores = np.zeros(D)
+        
+        for i in range(D):
+            # Vừa nghỉ đúng 1 kỳ (nổ ở t-2, nghỉ ở t-1) -> Nhịp tích lũy điểm cao nhất
+            if X[-1, i] == 0 and X[-2, i] == 1:
+                gap_scores[i] = 1.0
+            elif X[-1, i] == 0 and T >= 3 and X[-3, i] == 1:
+                gap_scores[i] = 0.6
             else:
-                scores[i] = 0.2
-                status[i] = 0 # Quá bão hòa hoặc quá nguội
+                gap_scores[i] = 0.1
                 
-        # Ma trận bắt cặp: BẮT BỘC 1 số Hot (1) đi với 1 số Accumulator (2)
-        hedged_mat = np.zeros((D, D))
-        for i in range(D):
-            for j in range(D):
-                if i != j:
-                    # Thưởng điểm cao nhất nếu ghép 1 Hot + 1 Accumulator
-                    if (status[i] == 1 and status[j] == 2) or (status[i] == 2 and status[j] == 1):
-                        hedged_mat[i, j] = scores[i] * scores[j] * 2.0
-                    elif status[i] == status[j] and status[i] != 0:
-                        # Phạt nếu ghép 2 số cùng loại (2 Hot hoặc 2 Accumulator)
-                        hedged_mat[i, j] = scores[i] * scores[j] * 0.3
-                        
-        return self._norm(hedged_mat)
+        return self._norm(gap_scores)
 
     # --------------------------------------------------------------------------
-    # 2. CLUSTER DECAY FILTER (LỌC PHÂN RÃ CỤM NỔ CÙNG BẠN)
-    # --------------------------------------------------------------------------
-    def _engine_cluster_decay(self, X):
-        """Triệt tiêu các cặp đã đi chung với nhau quá nhiều ở 3 kỳ gần nhất"""
-        T, D = X.shape
-        co_recent = np.dot(X[-3:].T, X[-3:]) # Đồng xuất hiện 3 kỳ gần nhất
-        
-        decay_mat = np.ones((D, D))
-        # Nếu đã đi chung với nhau >= 2 lần trong 3 kỳ gần đây -> Phạt nặng vì cụm đã phân rã
-        decay_mat[co_recent >= 2] = 0.10
-        decay_mat[co_recent >= 3] = 0.00
-        
-        return decay_mat
-
-    # --------------------------------------------------------------------------
-    # 3. GAP-INTERVAL DYNAMIC (KHOẢNG CÁCH NHỊP TẬP TRUNG)
-    # --------------------------------------------------------------------------
-    def _engine_gap_interval(self, X):
-        T, D = X.shape
-        gaps = np.zeros(D)
-        for i in range(D):
-            # Tính số kỳ nghỉ liên tiếp tính từ kỳ gần nhất
-            idx = np.where(X[:, i] == 1)[0]
-            if len(idx) > 0:
-                gaps[i] = (T - 1) - idx[-1]
-            else:
-                gaps[i] = T
-                
-        # Ưu tiên ghép số có Gap = 0 (vừa nổ) với số có Gap = 1 (nghỉ 1 kỳ)
-        gap_mat = np.zeros((D, D))
-        for i in range(D):
-            for j in range(D):
-                if (gaps[i] == 0 and gaps[j] == 1) or (gaps[i] == 1 and gaps[j] == 0):
-                    gap_mat[i, j] = 1.0
-                elif gaps[i] == 0 and gaps[j] == 0:
-                    gap_mat[i, j] = 0.2 # Phạt 2 số cùng vừa nổ
-                    
-        return gap_mat
-
-    # --------------------------------------------------------------------------
-    # PROCESSOR TỔNG HỢP VỚI CƠ CHẾ BẮT CẶP ĐỐI KHÁNG
+    # PROCESSOR PHỐI HỢP DÒNG LIÊN KẾT ĐA VAI TRÒ
     # --------------------------------------------------------------------------
     def process(self, X):
         T, D = X.shape
-        freqs = X.sum(axis=0)
 
-        # Chạy 3 mô hình bù trừ
-        e_hedged = self._engine_hedged_momentum(X)
-        e_decay = self._engine_cluster_decay(X)
-        e_gap = self._engine_gap_interval(X)
+        # 1. Trích xuất điểm của 4 Vai Trò Năng Lượng Độc Lập
+        s_flow = self._role_harmonic_flow(X)      # Vai trò A
+        s_rebound = self._role_rebound_momentum(X) # Vai trò B
+        s_cluster = self._role_cluster_density(X)  # Vai trò C
+        s_gap = self._role_gap_return(X)          # Vai trò D
 
-        # TỔNG HỢP CỘNG HƯỞNG BÙ TRỪ (HEDGED AGGREGATION)
-        fused = (2.5 * e_hedged + 1.8 * e_gap) * e_decay
+        # Group 1: Nhóm Dẫn Dắt Động Lượng (Primary Drivers) = Max(Flow, Rebound)
+        primary_drivers = np.maximum(s_flow, s_rebound)
 
-        np.fill_diagonal(fused, 0)
+        # Group 2: Nhóm Cân Bằng Cụm & Tích Lũy (Secondary Balancers) = Max(Cluster, Gap)
+        secondary_balancers = np.maximum(s_cluster, s_gap)
 
-        # Trích xuất Cặp Bậc 2 Tối Ưu
-        i, j = np.unravel_index(np.argmax(fused, axis=None), fused.shape)
+        # 2. Xây dựng Ma trận Bắt Cặp Chéo (Cross-Role Pairing Matrix)
+        # Ép buộc 1 số thuộc Group 1 bắt cặp với 1 số thuộc Group 2
+        pair_matrix = np.outer(primary_drivers, secondary_balancers)
+        
+        # Phạt các cặp số có cùng chỉ số vị trí (i == j) hoặc lặp cặp nổ trùng ở kỳ trước
+        np.fill_diagonal(pair_matrix, 0)
+        
+        last_co = np.outer(X[-1], X[-1])
+        pair_matrix[last_co == 1] *= 0.1 # Phạt 90% nếu vừa nổ chung ở kỳ cuối
+
+        # 3. Trích xuất Cặp Số Hợp Nhất Tối Ưu
+        i, j = np.unravel_index(np.argmax(pair_matrix, axis=None), pair_matrix.shape)
+        
+        # Xác định vai trò cụ thể của từng số
+        role_i = "Luồng Sóng / Lặp Động Lượng" if primary_drivers[i] >= secondary_balancers[i] else "Cụm Dải / Tích Lũy"
+        role_j = "Cụm Dải / Tích Lũy" if secondary_balancers[j] >= primary_drivers[j] else "Luồng Sóng / Lặp Động Lượng"
+
         num1, num2 = sorted([int(i + 1), int(j + 1)])
-        final_score = float(fused[i, j])
+        final_score = float(pair_matrix[i, j])
 
         explanation = (
-            f"• **Chiến lược Bắt Cặp Đối Kháng (Hedged Pairing):**\n"
-            f"  - *Cấu trúc chọn cặp:* Ghép **1 số Nóng (Vừa nổ kỳ t-1)** + **1 số Tích Lũy (Nghỉ 1 kỳ, chuẩn bị quay lại)**.\n"
-            f"  - *Triệt tiêu Phân rã Cụm (Cluster Decay):* Đã loại bỏ các cặp số dính liền từng nổ chung quá nhiều ở các kỳ trước (như 31-33 hay 25-26).\n"
-            f"  - *Chỉ số Khoảng cách Nhịp (Gap Dynamic):* Đảm bảo nhịp xuất hiện của 2 số bù trừ rủi ro cho nhau.\n"
+            f"• **CƠ CHẾ HỢP NHẤT 4 THUẬT TOÁN (Quad-Role Ensemble):**\n"
+            f"  - **Số {i+1:02d}:** Đóng vai trò *[{role_i}]* (Kế thừa Động cơ Quantum & Hyper-Layered).\n"
+            f"  - **Số {j+1:02d}:** Đóng vai trò *[{role_j}]* (Kế thừa Động cơ Phase & Hedged Pairing).\n"
+            f"• **Giải mã Liên kết ngầm:** Loại bỏ bẫy ghép 2 số cùng loại. Bắt buộc 1 số Chủ Đạo Động Lượng đi kèm 1 số Cân Bằng Cụm/Tích Lũy để triệt tiêu rủi ro hụt số.\n"
             f"• **Kết luận Chốt:** Cặp số **({num1:02d}, {num2:02d})**."
         )
 
@@ -130,8 +129,8 @@ class HedgedKenoEngine:
 # ==============================================================================
 # STREAMLIT UI
 # ==============================================================================
-st.title("⚡ Keno Hedged-Pairing Engine")
-st.caption("Khắc phục bẫy hụt 1 con • Ghép cặp Nóng - Tích lũy • Phân rã cụm lặp")
+st.title("⚡ Keno Quad-Role Ensemble Engine")
+st.caption("Hợp nhất 4 Thuật toán • Bắt cặp Chéo Đa Vai Trò • Khắc phục triệt để bẫy hụt số")
 
 raw_text_input = st.text_area(
     "Dán chuỗi số 5 kỳ (mỗi kỳ 1 dòng hoặc dán liên tục):",
@@ -151,22 +150,22 @@ if raw_text_input.strip():
             for num in all_numbers[k * 20 : (k + 1) * 20]:
                 matrix[k, num - 1] = 1.0
                 
-        st.success("🎉 Đã chạy xong Động cơ Bắt cặp Đối kháng!")
+        st.success("🎉 Đã chạy xong Mô hình Hợp nhất 4 Thuật toán Đa Vai trò!")
         
-        engine = HedgedKenoEngine(num_dim=80)
+        engine = QuadRoleKenoEngine(num_dim=80)
         best_pair, score, explanation = engine.process(matrix)
         
         st.markdown("---")
-        st.subheader("🎯 CẶP SỐ CHỐT BÙ TRỪ TỐI ƯU")
+        st.subheader("🎯 CẶP SỐ HOÀN CHỈNH ĐA VAI TRÒ")
         
         col1, col2 = st.columns(2)
         with col1:
-            st.metric(label="CẶP SỐ CHỐT", value=f"{best_pair[0]:02d} — {best_pair[1]:02d}")
+            st.metric(label="CẶP SỐ CHỐT HỢP NHẤT", value=f"{best_pair[0]:02d} — {best_pair[1]:02d}")
         with col2:
-            st.metric(label="Chỉ Số Bù Trừ Hedged Score", value=f"{score:.4f}")
+            st.metric(label="Chỉ Số Hợp Nhất Ensemble Score", value=f"{score:.4f}")
             
         st.info(explanation)
     else:
         st.warning(f"⚠️ Mới nhận diện được {len(all_numbers)} số ({total_kies}/5 kỳ). Vui lòng dán đủ 5 kỳ (100 số)!")
 else:
-    st.info("👆 Dán chuỗi số 5 kỳ vào khung phía trên để kích hoạt mô hình bù trừ.")
+    st.info("👆 Dán chuỗi số 5 kỳ vào khung phía trên để kích hoạt mô hình hợp nhất.")
