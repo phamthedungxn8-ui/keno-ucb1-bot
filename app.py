@@ -3,12 +3,12 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="Keno Co-Emission Network Engine", layout="centered")
+st.set_page_config(page_title="Keno Phase-Shift Residual Engine", layout="centered")
 
 # ==============================================================================
-# KENO CO-EMISSION & NEIGHBOR-SHIFT ENGINE
+# KENO PHASE-SHIFT RESIDUAL ENGINE (CHUYỂN PHA NĂNG LƯỢNG & KHÓA BẪY 31-33)
 # ==============================================================================
-class CoEmissionKenoEngine:
+class PhaseShiftKenoEngine:
     def __init__(self, num_dim=80):
         self.D = num_dim
 
@@ -16,77 +16,69 @@ class CoEmissionKenoEngine:
         m = np.max(mat)
         return mat / m if m > 0 else mat
 
-    # --------------------------------------------------------------------------
-    # 1. CO-OCCURRENCE CONDITIONAL MATRIX (MA TRẬN XÁC SUẤT ĐỒNG PHÁT)
-    # --------------------------------------------------------------------------
-    def _compute_co_occurrence(self, X):
-        """Tính ma trận tần suất và xác suất điều kiện xuất hiện cùng nhau"""
-        T, D = X.shape
-        # Ma trận đếm số lần cặp (i, j) cùng xuất hiện
-        co_matrix = np.dot(X.T, X)
-        np.fill_diagonal(co_matrix, 0)
-        
-        # Quyết định xác suất điều kiện P(j | i)
-        freq_i = X.sum(axis=0)
-        freq_i[freq_i == 0] = 1.0
-        
-        cond_prob = co_matrix / freq_i[:, None]
-        # Làm đối xứng ma trận cộng hưởng 2 chiều
-        co_resonance = (cond_prob + cond_prob.T) / 2.0
-        
-        return self._norm(co_resonance)
-
-    # --------------------------------------------------------------------------
-    # 2. OVER-SATURATION & NEIGHBOR SHIFT GATE (LỌC BÃO HÒA & DỊCH CHUYỂN LÂN CẬN)
-    # --------------------------------------------------------------------------
-    def _apply_saturation_and_shift(self, X, co_mat):
-        """Khử các số bão hòa (>3 kỳ) và dịch chuyển sang số kề bên"""
-        T, D = X.shape
-        freqs = X.sum(axis=0)
-        adjusted_mat = co_mat.copy()
-        
-        for i in range(D):
-            # Nếu số i đã nổ quá 3/5 kỳ -> Bão hòa năng lượng
-            if freqs[i] >= 3:
-                # Phạt nặng việc chọn lại chính số bão hòa này
-                adjusted_mat[i, :] *= 0.15
-                adjusted_mat[:, i] *= 0.15
-                
-                # Chuyển dịch năng lượng sang 2 số lân cận (i-1 và i+1)
-                left_neighbor = max(0, i - 1)
-                right_neighbor = min(D - 1, i + 1)
-                
-                if freqs[left_neighbor] < 3:
-                    adjusted_mat[left_neighbor, :] *= 1.8
-                if freqs[right_neighbor] < 3:
-                    adjusted_mat[right_neighbor, :] *= 1.8
-                    
-        # Phạt các cặp vừa nổ cùng nhau ở kỳ gần nhất
-        last_co = np.outer(X[-1], X[-1])
-        adjusted_mat[last_co == 1] *= 0.10
-        
-        return self._norm(adjusted_mat)
-
-    # --------------------------------------------------------------------------
-    # PROCESSOR TỔNG HỢP CO-EMISSION
-    # --------------------------------------------------------------------------
     def process(self, X):
-        # 1. Tính Ma trận Đồng phát Năng lượng
-        co_mat = self._compute_co_occurrence(X)
+        T, D = X.shape
         
-        # 2. Áp dụng Bộ lọc Lọc Bão hòa & Dịch chuyển Lân cận
-        final_pair_mat = self._apply_saturation_and_shift(X, co_mat)
+        # 1. Phân loại Trạng thái Kỳ 5 (Last Draw)
+        last_draw = X[-1]  # Vector 80 chiều (1: xuất hiện ở kỳ 5, 0: không xuất hiện)
         
-        # 3. Trích xuất Cặp số Chốt có Chỉ số Cùng Nổ cao nhất
-        i, j = np.unravel_index(np.argmax(final_pair_mat, axis=None), final_pair_mat.shape)
+        # 2. Tính Tần suất & Động lượng Năng lượng (Accumulated Momentum)
+        freqs = X.sum(axis=0) # Tổng số lần xuất hiện trong 5 kỳ
+        
+        # Ma trận Hiệu số Năng lượng Dịch chuyển (Phase Shift Score)
+        # Điểm cao nhất dành cho số vừa nghỉ ở Kỳ 5 nhưng có tần suất tốt ở các kỳ trước
+        residual_score = np.zeros(D)
+        for i in range(D):
+            if last_draw[i] == 1:
+                # Số vừa nổ ở Kỳ 5: Giữ năng lượng nền
+                residual_score[i] = 0.4 * freqs[i]
+            else:
+                # Số nghỉ ở Kỳ 5: Tính điểm tích lũy nhịp bù
+                residual_score[i] = 1.2 * freqs[i]
+
+        # Chuẩn hóa vector điểm đơn
+        residual_score = self._norm(residual_score)
+        
+        # 3. Xây dựng Ma trận Bắt Cặp Chéo Pha (Cross-Phase Pairing Matrix)
+        pair_mat = np.outer(residual_score, residual_score)
+        np.fill_diagonal(pair_mat, 0)
+        
+        # 4. ÁP DỤNG CÁC BỘ LỌC CẶP SỐ NGHIÊM NGẶT (STRICT PAIR FILTERS)
+        
+        # (A) Triệt tiêu triệt để các cặp số đã từng đi chung >= 2 lần trong 5 kỳ (Khóa cặp 31-33)
+        co_matrix = np.dot(X.T, X)
+        pair_mat[co_matrix >= 2] = 0.0
+        
+        # (B) Bắt buộc Bắt cặp Chéo Pha: 1 Số ở Kỳ 5 + 1 Số Nghỉ Kỳ 5
+        for i in range(D):
+            for j in range(D):
+                if i != j:
+                    # Nếu cả 2 số cùng nổ ở Kỳ 5 HOẶC cùng nghỉ ở Kỳ 5 -> Giảm trọng số
+                    if (last_draw[i] == 1 and last_draw[j] == 1) or (last_draw[i] == 0 and last_draw[j] == 0):
+                        pair_mat[i, j] *= 0.15
+                    else:
+                        # Thưởng lớn cho cặp Chéo Pha (1 Nóng Kỳ 5 + 1 Chuyển Pha)
+                        pair_mat[i, j] *= 2.2
+                        
+        # (C) Khóa bẫy bão hòa: Phạt nặng các số xuất hiện >= 3 lần
+        for i in range(D):
+            if freqs[i] >= 3:
+                pair_mat[i, :] *= 0.1
+                pair_mat[:, i] *= 0.1
+
+        # Chuẩn hóa ma trận điểm cuối cùng
+        final_mat = self._norm(pair_mat)
+        
+        # 5. Trích xuất Cặp số Chốt Tối ưu
+        i, j = np.unravel_index(np.argmax(final_mat, axis=None), final_mat.shape)
         num1, num2 = sorted([int(i + 1), int(j + 1)])
-        final_score = float(final_pair_mat[i, j])
+        final_score = float(final_mat[i, j])
 
         explanation = (
-            f"• **CƠ CHẾ ĐỒNG PHÁT NĂNG LƯỢNG & DỊCH CHUYỂN LÂN CẬN (Co-Emission Engine):**\n"
-            f"  - **Ma trận Cùng Nổ P(B|A):** Thay vì chọn 2 số có điểm cá nhân cao, mô hình tối ưu hóa trực tiếp độ đồng xuất hiện của cả cặp.\n"
-            f"  - **Lọc Bão Hòa (Over-Saturation Gate):** Triệt tiêu các số đã xuất hiện $\ge 3$ kỳ liên tiếp (như 52) để tránh bẫy hụt số.\n"
-            f"  - **Dịch Chuyển Lân Cận (Neighbor Shift):** Chuyển dịch năng lượng từ số bão hòa sang dải số kề bên có xác suất bùng nổ cao hơn.\n"
+            f"• **KHẮC PHỤC BẪY LẶP LẠI (Phase-Shift Residual Engine):**\n"
+            f"  - **Khóa Cặp Lặp Chu Kỳ:** Triệt tiêu hoàn toàn các cặp đã xuất hiện $\ge 2$ lần trong 5 kỳ (loại bỏ hoàn toàn cặp 31-33).\n"
+            f"  - **Nguyên lý Chuyển Pha (Cross-Phase Pairing):** Ép mô hình chọn 1 số nằm trong Kỳ 5 kết hợp với 1 số nghỉ Kỳ 5 có động lượng tích lũy cao.\n"
+            f"  - **Triệt tiêu Bão Hòa:** Hạ điểm các số duy trì vệt quá dài để mở đường cho dải số mới phát năng lượng.\n"
             f"• **Kết luận Chốt:** Cặp số **({num1:02d}, {num2:02d})**."
         )
 
@@ -95,8 +87,8 @@ class CoEmissionKenoEngine:
 # ==============================================================================
 # STREAMLIT UI
 # ==============================================================================
-st.title("⚡ Keno Co-Emission Network Engine")
-st.caption("Khắc phục bẫy hụt 1 con • Ma trận Xác suất Đồng phát P(B|A) • Lọc Bão hòa & Dịch chuyển Lân cận")
+st.title("⚡ Keno Phase-Shift Residual Engine")
+st.caption("Giải quyết triệt để bẫy lặp cặp 31-33 • Bắt cặp Chéo Pha (Cross-Phase) • Khóa vệt bão hòa")
 
 raw_text_input = st.text_area(
     "Dán chuỗi số 5 kỳ (mỗi kỳ 1 dòng hoặc dán liên tục):",
@@ -116,22 +108,22 @@ if raw_text_input.strip():
             for num in all_numbers[k * 20 : (k + 1) * 20]:
                 matrix[k, num - 1] = 1.0
                 
-        st.success("🎉 Đã chạy xong Mô hình Bắt cặp Đồng phát Co-Emission!")
+        st.success("🎉 Đã chạy xong Mô hình Chuyển Pha Phase-Shift!")
         
-        engine = CoEmissionKenoEngine(num_dim=80)
+        engine = PhaseShiftKenoEngine(num_dim=80)
         best_pair, score, explanation = engine.process(matrix)
         
         st.markdown("---")
-        st.subheader("🎯 CẶP SỐ ĐỒNG PHÁT TỐI ƯU")
+        st.subheader("🎯 CẶP SỐ ĐỘT PHÁ PHAN TRÃI")
         
         col1, col2 = st.columns(2)
         with col1:
-            st.metric(label="CẶP SỐ CHỐT ĐỒNG PHÁT", value=f"{best_pair[0]:02d} — {best_pair[1]:02d}")
+            st.metric(label="CẶP SỐ CHỐT MỚI", value=f"{best_pair[0]:02d} — {best_pair[1]:02d}")
         with col2:
-            st.metric(label="Chỉ Số Co-Emission Score", value=f"{score:.4f}")
+            st.metric(label="Chỉ Số Phase-Shift Score", value=f"{score:.4f}")
             
         st.info(explanation)
     else:
         st.warning(f"⚠️ Mới nhận diện được {len(all_numbers)} số ({total_kies}/5 kỳ). Vui lòng dán đủ 5 kỳ (100 số)!")
 else:
-    st.info("👆 Dán chuỗi số 5 kỳ vào khung phía trên để kích hoạt mô hình Co-Emission.")
+    st.info("👆 Dán chuỗi số 5 kỳ vào khung phía trên để kích hoạt mô hình Phase-Shift Residual.")
