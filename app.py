@@ -3,147 +3,90 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="Keno Self-Optimizing Ensemble Engine", layout="centered")
+st.set_page_config(page_title="Keno Co-Emission Network Engine", layout="centered")
 
 # ==============================================================================
-# SELF-OPTIMIZING MULTI-LAYER KENO ENGINE
+# KENO CO-EMISSION & NEIGHBOR-SHIFT ENGINE
 # ==============================================================================
-class AutoOptimizingKenoEngine:
+class CoEmissionKenoEngine:
     def __init__(self, num_dim=80):
         self.D = num_dim
 
-    def _norm(self, vec):
-        m = np.max(vec)
-        return vec / m if m > 0 else vec
+    def _norm(self, mat):
+        m = np.max(mat)
+        return mat / m if m > 0 else mat
 
     # --------------------------------------------------------------------------
-    # 1. BASE ENGINES (CÁC THUẬT TOÁN THÀNH PHẦN)
+    # 1. CO-OCCURRENCE CONDITIONAL MATRIX (MA TRẬN XÁC SUẤT ĐỒNG PHÁT)
     # --------------------------------------------------------------------------
-    def _engine_gnn(self, X):
-        """Spatial Graph Convolution"""
+    def _compute_co_occurrence(self, X):
+        """Tính ma trận tần suất và xác suất điều kiện xuất hiện cùng nhau"""
         T, D = X.shape
-        A = np.dot(X.T, X)
-        np.fill_diagonal(A, 0)
-        deg = np.sum(A, axis=1)
-        deg_inv = np.power(deg, -0.5, where=deg>0)
-        deg_inv[deg == 0] = 0
-        D_mat = np.diag(deg_inv)
-        L = np.dot(np.dot(D_mat, A), D_mat)
+        # Ma trận đếm số lần cặp (i, j) cùng xuất hiện
+        co_matrix = np.dot(X.T, X)
+        np.fill_diagonal(co_matrix, 0)
         
-        h = np.tanh(np.dot(L, X[-1]))
-        return self._norm(h)
+        # Quyết định xác suất điều kiện P(j | i)
+        freq_i = X.sum(axis=0)
+        freq_i[freq_i == 0] = 1.0
+        
+        cond_prob = co_matrix / freq_i[:, None]
+        # Làm đối xứng ma trận cộng hưởng 2 chiều
+        co_resonance = (cond_prob + cond_prob.T) / 2.0
+        
+        return self._norm(co_resonance)
 
-    def _engine_attention(self, X):
-        """Temporal Transformer Attention"""
+    # --------------------------------------------------------------------------
+    # 2. OVER-SATURATION & NEIGHBOR SHIFT GATE (LỌC BÃO HÒA & DỊCH CHUYỂN LÂN CẬN)
+    # --------------------------------------------------------------------------
+    def _apply_saturation_and_shift(self, X, co_mat):
+        """Khử các số bão hòa (>3 kỳ) và dịch chuyển sang số kề bên"""
         T, D = X.shape
-        scores = np.dot(X, X.T) / np.sqrt(D)
-        exp_s = np.exp(scores - np.max(scores, axis=-1, keepdims=True))
-        attn = exp_s / np.sum(exp_s, axis=-1, keepdims=True)
-        ctx = np.dot(attn, X)
-        return self._norm(np.mean(ctx, axis=0))
-
-    def _engine_markov(self, X):
-        """Markov State Transition Probability"""
-        T, D = X.shape
-        trans = np.dot(X[:-1].T, X[1:])
-        r_sum = trans.sum(axis=1, keepdims=True)
-        r_sum[r_sum == 0] = 1.0
-        p_trans = trans / r_sum
-        return self._norm(p_trans[np.where(X[-1] == 1)[0]].sum(axis=0))
-
-    def _engine_kalman(self, X):
-        """Kalman Momentum Accumulation"""
-        T, D = X.shape
-        rates = np.zeros(D)
+        freqs = X.sum(axis=0)
+        adjusted_mat = co_mat.copy()
+        
         for i in range(D):
-            x_hat, P, Q, R = 0.25, 1.0, 0.05, 0.2
-            for t in range(T):
-                P += Q
-                K = P / (P + R)
-                x_hat += K * (X[t, i] - x_hat)
-                P = (1 - K) * P
-            rates[i] = x_hat
-        return self._norm(rates)
+            # Nếu số i đã nổ quá 3/5 kỳ -> Bão hòa năng lượng
+            if freqs[i] >= 3:
+                # Phạt nặng việc chọn lại chính số bão hòa này
+                adjusted_mat[i, :] *= 0.15
+                adjusted_mat[:, i] *= 0.15
+                
+                # Chuyển dịch năng lượng sang 2 số lân cận (i-1 và i+1)
+                left_neighbor = max(0, i - 1)
+                right_neighbor = min(D - 1, i + 1)
+                
+                if freqs[left_neighbor] < 3:
+                    adjusted_mat[left_neighbor, :] *= 1.8
+                if freqs[right_neighbor] < 3:
+                    adjusted_mat[right_neighbor, :] *= 1.8
+                    
+        # Phạt các cặp vừa nổ cùng nhau ở kỳ gần nhất
+        last_co = np.outer(X[-1], X[-1])
+        adjusted_mat[last_co == 1] *= 0.10
+        
+        return self._norm(adjusted_mat)
 
     # --------------------------------------------------------------------------
-    # 2. AUTO-OPTIMIZATION & BACKTESTING MODULE (VÒNG LẶP TỰ TỐI ƯU TRỌNG SỐ)
-    # --------------------------------------------------------------------------
-    def _auto_optimize_weights(self, X):
-        """Thử nghiệm ngược trên 4 kỳ đầu để đánh giá và tối ưu trọng số thuật toán"""
-        X_train = X[:-1] # 4 kỳ đầu
-        y_true = X[-1]   # Kỳ thứ 5 làm nhãn kiểm chứng
-        
-        # Chạy thử 4 thuật toán trên dữ liệu huấn luyện
-        pred_gnn = self._engine_gnn(X_train)
-        pred_attn = self._engine_attention(X_train)
-        pred_markov = self._engine_markov(X_train)
-        pred_kalman = self._engine_kalman(X_train)
-        
-        preds = [pred_gnn, pred_attn, pred_markov, pred_kalman]
-        names = ["GNN Graph", "Transformer Attention", "Markov Transition", "Kalman Momentum"]
-        
-        # Tính độ khớp (Cross-Entropy Loss / Hit Rate Score)
-        scores = []
-        for p in preds:
-            # Đo tỷ lệ khớp giữa vector dự báo p và thực tế y_true
-            hit_score = np.dot(p, y_true) / (np.sum(y_true) + 1e-5)
-            scores.append(hit_score)
-            
-        scores = np.array(scores)
-        # Softmax để quy đổi thành Trọng số Động (Dynamic Weights)
-        exp_w = np.exp(scores * 3.0) # Scale factor = 3.0
-        weights = exp_w / np.sum(exp_w)
-        
-        return weights, names
-
-    # --------------------------------------------------------------------------
-    # 3. FINAL ENSEMBLE & PAIR SELECTION (TỔNG HỢP VÀ CHỐT CẶP SỐ)
+    # PROCESSOR TỔNG HỢP CO-EMISSION
     # --------------------------------------------------------------------------
     def process(self, X):
-        # 1. Tự động thử nghiệm và tối ưu trọng số
-        opt_weights, engine_names = self._auto_optimize_weights(X)
+        # 1. Tính Ma trận Đồng phát Năng lượng
+        co_mat = self._compute_co_occurrence(X)
         
-        # 2. Chạy toàn bộ mô hình trên đủ 5 kỳ
-        p_gnn = self._engine_gnn(X)
-        p_attn = self._engine_attention(X)
-        p_markov = self._engine_markov(X)
-        p_kalman = self._engine_kalman(X)
+        # 2. Áp dụng Bộ lọc Lọc Bão hòa & Dịch chuyển Lân cận
+        final_pair_mat = self._apply_saturation_and_shift(X, co_mat)
         
-        # 3. Tổng hợp vector dự báo theo Trọng số Tối ưu
-        fused_vec = (
-            opt_weights[0] * p_gnn +
-            opt_weights[1] * p_attn +
-            opt_weights[2] * p_markov +
-            opt_weights[3] * p_kalman
-        )
-        fused_vec = self._norm(fused_vec)
-        
-        # 4. Ma trận Bắt Cặp Bù Trừ (Hedged Pair Matrix)
-        pair_mat = np.outer(fused_vec, fused_vec)
-        np.fill_diagonal(pair_mat, 0)
-        
-        # Phạt nặng các cặp số vừa nổ chung ở kỳ cuối (Tránh bẫy bão hòa)
-        last_co = np.outer(X[-1], X[-1])
-        pair_mat[last_co == 1] *= 0.1
-        
-        # Ưu tiên cặp số có nhịp bù trừ (1 Nóng + 1 Tích lũy)
-        for i in range(self.D):
-            for j in range(self.D):
-                if i != j and (X[-1, i] != X[-1, j]):
-                    pair_mat[i, j] *= 1.8
-                    
-        # Trích xuất Cặp số Chốt
-        i, j = np.unravel_index(np.argmax(pair_mat, axis=None), pair_mat.shape)
+        # 3. Trích xuất Cặp số Chốt có Chỉ số Cùng Nổ cao nhất
+        i, j = np.unravel_index(np.argmax(final_pair_mat, axis=None), final_pair_mat.shape)
         num1, num2 = sorted([int(i + 1), int(j + 1)])
-        final_score = float(pair_mat[i, j])
+        final_score = float(final_pair_mat[i, j])
 
-        # Báo cáo trọng số đã tự tối ưu
-        weight_report = "\n".join([f"  - **{names}:** {w*100:.1f}%" for names, w in zip(engine_names, opt_weights)])
-        
         explanation = (
-            f"• **KẾT QUẢ TỰ ĐỘNG THỬ NGHIỆM & TỐI ƯU TRỌNG SỐ (AutoML Weight Adaptation):**\n"
-            f"{weight_report}\n"
-            f"• **Cơ chế Tổng hợp:** Hệ thống đã tự động chạy Backtest trên 4 kỳ đầu, đối chiếu với kỳ 5 để đánh giá thuật toán nào đang hoạt động tốt nhất và tự điều chỉnh phân bổ trọng số.\n"
+            f"• **CƠ CHẾ ĐỒNG PHÁT NĂNG LƯỢNG & DỊCH CHUYỂN LÂN CẬN (Co-Emission Engine):**\n"
+            f"  - **Ma trận Cùng Nổ P(B|A):** Thay vì chọn 2 số có điểm cá nhân cao, mô hình tối ưu hóa trực tiếp độ đồng xuất hiện của cả cặp.\n"
+            f"  - **Lọc Bão Hòa (Over-Saturation Gate):** Triệt tiêu các số đã xuất hiện $\ge 3$ kỳ liên tiếp (như 52) để tránh bẫy hụt số.\n"
+            f"  - **Dịch Chuyển Lân Cận (Neighbor Shift):** Chuyển dịch năng lượng từ số bão hòa sang dải số kề bên có xác suất bùng nổ cao hơn.\n"
             f"• **Kết luận Chốt:** Cặp số **({num1:02d}, {num2:02d})**."
         )
 
@@ -152,8 +95,8 @@ class AutoOptimizingKenoEngine:
 # ==============================================================================
 # STREAMLIT UI
 # ==============================================================================
-st.title("⚡ Keno Self-Optimizing Ensemble Engine")
-st.caption("Tự động Thử nghiệm • Tự tối ưu Trọng số Thuật toán • AutoML Backtesting Loop")
+st.title("⚡ Keno Co-Emission Network Engine")
+st.caption("Khắc phục bẫy hụt 1 con • Ma trận Xác suất Đồng phát P(B|A) • Lọc Bão hòa & Dịch chuyển Lân cận")
 
 raw_text_input = st.text_area(
     "Dán chuỗi số 5 kỳ (mỗi kỳ 1 dòng hoặc dán liên tục):",
@@ -173,22 +116,22 @@ if raw_text_input.strip():
             for num in all_numbers[k * 20 : (k + 1) * 20]:
                 matrix[k, num - 1] = 1.0
                 
-        st.success("🎉 Đã chạy xong Mô hình Tự tối ưu Trọng số!")
+        st.success("🎉 Đã chạy xong Mô hình Bắt cặp Đồng phát Co-Emission!")
         
-        engine = AutoOptimizingKenoEngine(num_dim=80)
+        engine = CoEmissionKenoEngine(num_dim=80)
         best_pair, score, explanation = engine.process(matrix)
         
         st.markdown("---")
-        st.subheader("🎯 CẶP SỐ CHỐT TỰ ĐỘNG TỐI ƯU")
+        st.subheader("🎯 CẶP SỐ ĐỒNG PHÁT TỐI ƯU")
         
         col1, col2 = st.columns(2)
         with col1:
-            st.metric(label="CẶP SỐ CHỐT TỐI ƯU", value=f"{best_pair[0]:02d} — {best_pair[1]:02d}")
+            st.metric(label="CẶP SỐ CHỐT ĐỒNG PHÁT", value=f"{best_pair[0]:02d} — {best_pair[1]:02d}")
         with col2:
-            st.metric(label="Chỉ Số Auto-Ensemble Score", value=f"{score:.4f}")
+            st.metric(label="Chỉ Số Co-Emission Score", value=f"{score:.4f}")
             
         st.info(explanation)
     else:
         st.warning(f"⚠️ Mới nhận diện được {len(all_numbers)} số ({total_kies}/5 kỳ). Vui lòng dán đủ 5 kỳ (100 số)!")
 else:
-    st.info("👆 Dán chuỗi số 5 kỳ vào khung phía trên để kích hoạt mô hình tự động tối ưu.")
+    st.info("👆 Dán chuỗi số 5 kỳ vào khung phía trên để kích hoạt mô hình Co-Emission.")
