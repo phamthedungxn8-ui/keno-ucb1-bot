@@ -1,141 +1,75 @@
 import re
+import itertools
 import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="Keno Restructured Hybrid Dual-Pair Engine", layout="centered")
+st.set_page_config(page_title="Keno Core-Coverage Matrix Engine", layout="centered")
 
 # ==============================================================================
-# RESTRUCTURED HYBRID ENGINE (5-IN-1 ALGORITHMS -> 2 SECOND-ORDER PAIRS FOR 1 DRAW)
+# CORE-COVERAGE MATRIX ENGINE (QUẢN TRỊ XÁC SUẤT & PHỦ RỘNG)
 # ==============================================================================
-class RestructuredKenoDualPairEngine:
+class CoreCoverageEngine:
     def __init__(self, num_dim=80):
         self.D = num_dim
 
-    def _norm(self, vec_or_mat):
-        m = np.max(vec_or_mat)
-        return vec_or_mat / m if m > 0 else vec_or_mat
-
-    # 1. SPATIAL GNN: Lan truyền năng lượng ma trận kề đồ thị
-    def _gnn_layer(self, X):
-        A = np.dot(X.T, X)
-        np.fill_diagonal(A, 0)
-        degree = np.sum(A, axis=1)
-        deg_inv_sqrt = np.power(degree, -0.5, where=degree>0)
-        deg_inv_sqrt[degree == 0] = 0
-        D_mat = np.diag(deg_inv_sqrt)
-        L_norm = np.dot(np.dot(D_mat, A), D_mat)
-        gnn_signal = np.tanh(np.dot(L_norm, X[-1]))
-        gnn_mat = np.outer(gnn_signal, gnn_signal)
-        np.fill_diagonal(gnn_mat, 0)
-        return self._norm(gnn_mat)
-
-    # 2. TRANSFORMER ATTENTION: Tín hiệu chú ý chuỗi thời gian Q, K, V
-    def _transformer_layer(self, X):
-        scores = np.dot(X.T, X) / np.sqrt(X.shape[0])
-        exp_scores = np.exp(scores - np.max(scores, axis=-1, keepdims=True))
-        attn_mat = exp_scores / np.sum(exp_scores, axis=-1, keepdims=True)
-        np.fill_diagonal(attn_mat, 0)
-        return self._norm(attn_mat)
-
-    # 3. PHASE-SHIFT: Đo độ lệch pha chu kỳ nghỉ & nổ
-    def _phase_shift_layer(self, X):
+    def process_matrix(self, X):
         T, D = X.shape
-        last_seen = np.zeros(D)
-        for d in range(D):
-            pos = np.where(X[:, d] == 1)[0]
-            last_seen[d] = pos[-1] if len(pos) > 0 else -1
-        phase_diff = np.abs(last_seen[:, None] - last_seen[None, :])
-        np.fill_diagonal(phase_diff, 0)
-        return self._norm(phase_diff)
-
-    # 4. CHAOS ORTHOGONALITY & SHANNON ENTROPY: Vuông góc Vector & Cân bằng Hỗn loạn
-    def _chaos_entropy_layer(self, X):
-        # Cosine Orthogonality
-        vectors = X.T
-        norms = np.linalg.norm(vectors, axis=1, keepdims=True)
-        norms[norms == 0] = 1.0
-        norm_vecs = vectors / norms
-        cosine_sim = np.dot(norm_vecs, norm_vecs.T)
-        ortho_mat = 1.0 - np.abs(cosine_sim)
+        freqs = X.sum(axis=0) # Tần số xuất hiện trong 5 kỳ
+        last_draw = X[-1]     # Kỳ gần nhất
         
-        # Shannon Entropy
-        p1 = np.clip(X.sum(axis=0) / X.shape[0], 1e-5, 1.0 - 1e-5)
-        p0 = 1.0 - p1
-        entropy = - (p1 * np.log2(p1) + p0 * np.log2(p0))
+        # 1. BỘ LỌC CHỌN SỐ HẠT NHÂN (HOT CORE)
+        # Ưu tiên số xuất hiện >= 2 lần và vừa nổ ở kỳ gần nhất (quán tính nổ tiếp)
+        core_scores = freqs * 1.5 + last_draw * 2.0
+        core_idx = int(np.argmax(core_scores))
+        core_num = core_idx + 1
         
-        entropy_mat = np.outer(entropy, entropy)
-        res_mat = ortho_mat * entropy_mat
-        np.fill_diagonal(res_mat, 0)
-        return self._norm(res_mat)
-
-    # --------------------------------------------------------------------------
-    # PROCESSOR TÁI CẤU TRÚC: CHỐT 2 CẶP SỐ BẬC 2 CHO 1 KỲ DỰ BÁO
-    # --------------------------------------------------------------------------
-    def process_dual_pairs(self, X):
-        T, D = X.shape
+        # 2. BỘ LỌC CHỌN 5 SỐ VỆ TINH (SATELLITES)
+        # Lấy các số có tần số xuất hiện 1 - 2 lần (nhịp tích lũy vừa phải)
+        sat_scores = np.zeros(D)
+        for i in range(D):
+            if i != core_idx:
+                if freqs[i] == 1 or freqs[i] == 2:
+                    sat_scores[i] = freqs[i] * 2.0 + (1 - last_draw[i]) # Ưu tiên số vừa nghỉ 1 kỳ
+                else:
+                    sat_scores[i] = freqs[i] * 0.5
+                    
+        # Lấy Top 5 số Vệ tinh
+        top_sat_indices = np.argsort(sat_scores)[-5:][::-1]
+        sat_numbers = [int(idx + 1) for idx in top_sat_indices]
         
-        # Tích hợp 4 Tầng Thuật toán
-        m_gnn = self._gnn_layer(X)
-        m_attn = self._transformer_layer(X)
-        m_phase = self._phase_shift_layer(X)
-        m_chaos = self._chaos_entropy_layer(X)
+        # 3. TẠO MA TRẬN 6 SỐ TỔ HỢP (CORE + 5 SATELLITES)
+        full_cluster = [core_num] + sat_numbers
         
-        # Tổng hợp Ma trận Năng lượng Đa tầng (Multi-Layer Ensemble Matrix)
-        ensemble_mat = (0.30 * m_chaos) + (0.25 * m_attn) + (0.25 * m_gnn) + (0.20 * m_phase)
+        # Tạo tất cả các cặp số bậc 2 từ dàn 6 số (Tổng cộng C(6, 2) = 15 cặp)
+        all_pairs = list(itertools.combinations(full_cluster, 2))
         
-        # LỌC CỨNG: Phạt nặng các cặp số đã cùng xuất hiện >= 2 lần trong 5 kỳ
-        co_occur = np.dot(X.T, X)
-        ensemble_mat[co_occur >= 2] *= 0.05
+        # Lựa chọn 6 Cặp Trọng Tâm chứa Số Hạt Nhân + 4 Cặp Phủ Ghép Chéo
+        core_pairs = [p for p in all_pairs if core_num in p][:6]
+        cross_pairs = [p for p in all_pairs if core_num not in p][:4]
         
-        # Phạt các số bão hòa (nổ >= 3 kỳ)
-        freqs = X.sum(axis=0)
-        for d in range(D):
-            if freqs[d] >= 3:
-                ensemble_mat[d, :] *= 0.1
-                ensemble_mat[:, d] *= 0.1
-                
-        ensemble_mat = self._norm(ensemble_mat)
-        
-        # ----------------------------------------------------------------------
-        # BỘ LỌC PHÂN RÃ BẬC 2 (SECOND-ORDER DECOUPLING SELECTION)
-        # ----------------------------------------------------------------------
-        # Cặp 1: Cặp số có điểm số Ensemble cao nhất toàn hệ thống (Primary Pair)
-        i1, j1 = np.unravel_index(np.argmax(ensemble_mat, axis=None), ensemble_mat.shape)
-        pair1 = sorted([int(i1 + 1), int(j1 + 1)])
-        score1 = float(ensemble_mat[i1, j1])
-        
-        # Triệt tiêu năng lượng của Cặp 1 và các vùng lân cận để ép hệ thống tìm Cặp 2 độc lập
-        decoupled_mat = ensemble_mat.copy()
-        decoupled_mat[i1, :] = 0.0
-        decoupled_mat[:, i1] = 0.0
-        decoupled_mat[j1, :] = 0.0
-        decoupled_mat[:, j1] = 0.0
-        
-        # Cặp 2: Cặp số Bậc 2 bổ trợ pha (Secondary Pair)
-        i2, j2 = np.unravel_index(np.argmax(decoupled_mat, axis=None), decoupled_mat.shape)
-        pair2 = sorted([int(i2 + 1), int(j2 + 1)])
-        score2 = float(decoupled_mat[i2, j2])
+        selected_10_pairs = core_pairs + cross_pairs
 
         explanation = (
-            f"• **TÁI CẤU TRÚC MÔ HÌNH PHÂN TÍCH 1 KỲ (Dual-Pair Hybrid Dynamics):**\n"
-            f"  - **Tích Hợp Trọn Bộ 5 Thuật Toán:** Kết hợp GNN Đồ thị (25%), Transformer Attention (25%), Chaos Orthogonality Vector (30%), Shannon Entropy và Phase-Shift (20%).\n"
-            f"  - **Phân Rã Cặp Bậc 2 (Decoupling Gate):** Thay vì chốt 1 cặp rủi ro, hệ thống trích xuất 2 Cặp Số Bậc 2 độc lập không gian. Cặp 1 giữ vai trò Chủ lực, Cặp 2 đóng vai trò Lót pha triệt tiêu lệch pha vi mô."
+            f"• **CHIẾN THUẬT MA TRẬN PHỦ BẢO HIỂM (Core-Coverage Strategy):**\n"
+            f"  - **Hạt Nhân Tần Số (Core):** Khóa cứng số **{core_num:02d}** (có quán tính nổ cao nhất).\n"
+            f"  - **Dàn 5 Vệ Tinh (Satellites):** Bao phủ 5 số **{', '.join([f'{n:02d}' for n in sat_numbers])}** đang ở nhịp điểm rơi phong độ.\n"
+            f"  - **Ưu điểm Toán học:** Bạn sở hữu dàn 6 số **[{', '.join([f'{n:02d}' for n in full_cluster])}]**. Chỉ cần 2 trong 6 số này xuất hiện trong 20 số Keno rút ra, bạn **chắc chắn ăn trúng cặp!**"
         )
 
-        return pair1, score1, pair2, score2, explanation
+        return core_num, sat_numbers, selected_10_pairs, explanation
 
 # ==============================================================================
 # STREAMLIT UI DISPLAY
 # ==============================================================================
-st.title("⚡ Keno Restructured Dual-Pair Engine")
-st.caption("Tập trung 1 Kỳ Dự Báo • Tích hợp trọn bộ 5 thuật toán lõi • Chốt 2 Cặp Số Bậc 2 Độc Lập")
+st.title("🛡️ Keno Core-Coverage Matrix Engine")
+st.caption("Chuyển từ Dự báo Ngẫu nhiên sang Quản trị Xác suất Matrix • Phủ Rộng Dàn 6 Số")
 
 raw_text_input = st.text_area(
     "Dán chuỗi số 5 kỳ (mỗi kỳ 1 dòng hoặc dán liên tục):",
     placeholder="Kì 1: 01 02 11 15 ...\nKì 2: ...",
     height=150,
-    key="raw_text_keno_dual"
+    key="raw_text_keno_coverage"
 )
 
 if raw_text_input.strip():
@@ -149,25 +83,36 @@ if raw_text_input.strip():
             for num in all_numbers[k * 20 : (k + 1) * 20]:
                 matrix[k, num - 1] = 1.0
                 
-        st.success("🎉 Đã chạy xong Mô hình Tái Cấu Trúc Dual-Pair!")
+        st.success("🎉 Đã hoàn thành lập Ma trận Phủ Xác suất!")
         
-        engine = RestructuredKenoDualPairEngine(num_dim=80)
-        pair1, score1, pair2, score2, explanation = engine.process_dual_pairs(matrix)
+        engine = CoreCoverageEngine(num_dim=80)
+        core_num, sat_numbers, selected_pairs, explanation = engine.process_matrix(matrix)
         
         st.markdown("---")
-        st.subheader("🎯 CẶP SỐ CHỐT 1 KỲ (2 CẶP BẬC 2 TỐI ƯU)")
+        st.subheader("🎯 BẢNG KHÓA SỐ & DÀN PHỦ BAO VÙNG")
         
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric(label="🔥 CẶP 1 (CHỦ LỰC)", value=f"{pair1[0]:02d} — {pair1[1]:02d}")
-            st.caption(f"Ensemble Score: {score1:.4f}")
-        with col2:
-            st.metric(label="🛡️ CẶP 2 (LÓT PHA BẬC 2)", value=f"{pair2[0]:02d} — {pair2[1]:02d}")
-            st.caption(f"Decoupled Score: {score2:.4f}")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.metric(label="🔥 SỐ HẠT NHÂN CORE", value=f"{core_num:02d}")
+        with c2:
+            st.metric(label="🛰️ DÀN 5 VỆ TINH PHỦ BẢO HIỂM", value=", ".join([f"{n:02d}" for n in sat_numbers]))
+            
+        st.markdown("---")
+        st.subheader("🚀 BẢNG 10 CẶP SỐ CHỐT ĐÁNH (BẢO HIỂM TRÚNG CHÉO):")
+        
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown("**Cặp Ghép Hạt Nhân (Ưu tiên):**")
+            for idx, p in enumerate(selected_pairs[:6]):
+                st.write(f"{idx+1}. Cặp `{p[0]:02d} — {p[1]:02d}`")
+        with col_b:
+            st.markdown("**Cặp Phủ Vệ Tinh (Bọc lót):**")
+            for idx, p in enumerate(selected_pairs[6:]):
+                st.write(f"{idx+7}. Cặp `{p[0]:02d} — {p[1]:02d}`")
             
         st.markdown("---")
         st.info(explanation)
     else:
         st.warning(f"⚠️ Mới nhận diện được {len(all_numbers)} số ({total_kies}/5 kỳ). Vui lòng dán đủ 5 kỳ (100 số)!")
 else:
-    st.info("👆 Dán chuỗi số 5 kỳ vào khung trên để chạy Mô hình Dual-Pair 1 Kỳ.")
+    st.info("👆 Dán chuỗi số 5 kỳ vào khung trên để kích hoạt Ma trận Phủ Bảo hiểm.")
