@@ -3,12 +3,12 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="Keno Hybrid Ensemble 3-Period Engine", layout="wide")
+st.set_page_config(page_title="Keno Restructured Hybrid Dual-Pair Engine", layout="centered")
 
 # ==============================================================================
-# HYBRID ENSEMBLE ENGINE (TÍCH HỢP 5 THUẬT TOÁN LÕI CŨ & TỐI ƯU 3 KỲ ĐÁNH)
+# RESTRUCTURED HYBRID ENGINE (5-IN-1 ALGORITHMS -> 2 SECOND-ORDER PAIRS FOR 1 DRAW)
 # ==============================================================================
-class KenoHybridEngine:
+class RestructuredKenoDualPairEngine:
     def __init__(self, num_dim=80):
         self.D = num_dim
 
@@ -16,118 +16,126 @@ class KenoHybridEngine:
         m = np.max(vec_or_mat)
         return vec_or_mat / m if m > 0 else vec_or_mat
 
-    # 1. THUẬT TOÁN GNN (Graph Neural Network Sim): Tính liên kết giữa các số
-    def _gnn_adjacency(self, X):
-        adj = np.dot(X.T, X)
-        np.fill_diagonal(adj, 0)
-        return self._norm(adj)
+    # 1. SPATIAL GNN: Lan truyền năng lượng ma trận kề đồ thị
+    def _gnn_layer(self, X):
+        A = np.dot(X.T, X)
+        np.fill_diagonal(A, 0)
+        degree = np.sum(A, axis=1)
+        deg_inv_sqrt = np.power(degree, -0.5, where=degree>0)
+        deg_inv_sqrt[degree == 0] = 0
+        D_mat = np.diag(deg_inv_sqrt)
+        L_norm = np.dot(np.dot(D_mat, A), D_mat)
+        gnn_signal = np.tanh(np.dot(L_norm, X[-1]))
+        gnn_mat = np.outer(gnn_signal, gnn_signal)
+        np.fill_diagonal(gnn_mat, 0)
+        return self._norm(gnn_mat)
 
-    # 2. THUẬT TOÁN TRANSFORMER ATTENTION: Tính trọng số chú ý không gian
-    def _transformer_attention(self, X):
-        # Q = K = X.T (Self-Attention tối giản)
+    # 2. TRANSFORMER ATTENTION: Tín hiệu chú ý chuỗi thời gian Q, K, V
+    def _transformer_layer(self, X):
         scores = np.dot(X.T, X) / np.sqrt(X.shape[0])
         exp_scores = np.exp(scores - np.max(scores, axis=-1, keepdims=True))
-        attn = exp_scores / np.sum(exp_scores, axis=-1, keepdims=True)
-        np.fill_diagonal(attn, 0)
-        return self._norm(attn)
+        attn_mat = exp_scores / np.sum(exp_scores, axis=-1, keepdims=True)
+        np.fill_diagonal(attn_mat, 0)
+        return self._norm(attn_mat)
 
-    # 3. THUẬT TOÁN PHASE-SHIFT (Dịch Pha Sóng): Tính độ lệch chu kỳ nổ
-    def _phase_shift(self, X):
+    # 3. PHASE-SHIFT: Đo độ lệch pha chu kỳ nghỉ & nổ
+    def _phase_shift_layer(self, X):
         T, D = X.shape
         last_seen = np.zeros(D)
         for d in range(D):
             pos = np.where(X[:, d] == 1)[0]
             last_seen[d] = pos[-1] if len(pos) > 0 else -1
         phase_diff = np.abs(last_seen[:, None] - last_seen[None, :])
+        np.fill_diagonal(phase_diff, 0)
         return self._norm(phase_diff)
 
-    # 4. THUẬT TOÁN CHAOS ORTHOGONALITY (Vector Vuông Góc & Entropy)
-    def _chaos_orthogonality(self, X):
+    # 4. CHAOS ORTHOGONALITY & SHANNON ENTROPY: Vuông góc Vector & Cân bằng Hỗn loạn
+    def _chaos_entropy_layer(self, X):
+        # Cosine Orthogonality
         vectors = X.T
         norms = np.linalg.norm(vectors, axis=1, keepdims=True)
         norms[norms == 0] = 1.0
         norm_vecs = vectors / norms
         cosine_sim = np.dot(norm_vecs, norm_vecs.T)
-        ortho = 1.0 - np.abs(cosine_sim)
+        ortho_mat = 1.0 - np.abs(cosine_sim)
         
-        # Entropy
+        # Shannon Entropy
         p1 = np.clip(X.sum(axis=0) / X.shape[0], 1e-5, 1.0 - 1e-5)
         p0 = 1.0 - p1
         entropy = - (p1 * np.log2(p1) + p0 * np.log2(p0))
         
         entropy_mat = np.outer(entropy, entropy)
-        res = ortho * entropy_mat
-        np.fill_diagonal(res, 0)
-        return self._norm(res)
+        res_mat = ortho_mat * entropy_mat
+        np.fill_diagonal(res_mat, 0)
+        return self._norm(res_mat)
 
-    # 5. TÍCH HỢP TỔNG HỢP (HYBRID ENSEMBLE) & TIẾN HÓA 3 KỲ
-    def process_hybrid_3_periods(self, X):
+    # --------------------------------------------------------------------------
+    # PROCESSOR TÁI CẤU TRÚC: CHỐT 2 CẶP SỐ BẬC 2 CHO 1 KỲ DỰ BÁO
+    # --------------------------------------------------------------------------
+    def process_dual_pairs(self, X):
         T, D = X.shape
         
-        # Trích xuất đặc trưng từ 4 thuật toán thành phần
-        mat_gnn = self._gnn_adjacency(X)
-        mat_attn = self._transformer_attention(X)
-        mat_phase = self._phase_shift(X)
-        mat_chaos = self._chaos_orthogonality(X)
+        # Tích hợp 4 Tầng Thuật toán
+        m_gnn = self._gnn_layer(X)
+        m_attn = self._transformer_layer(X)
+        m_phase = self._phase_shift_layer(X)
+        m_chaos = self._chaos_entropy_layer(X)
         
-        # Trọng số Ensemble kết hợp
-        hybrid_base = (
-            0.30 * mat_chaos + 
-            0.25 * mat_attn + 
-            0.25 * mat_gnn + 
-            0.20 * mat_phase
-        )
+        # Tổng hợp Ma trận Năng lượng Đa tầng (Multi-Layer Ensemble Matrix)
+        ensemble_mat = (0.30 * m_chaos) + (0.25 * m_attn) + (0.25 * m_gnn) + (0.20 * m_phase)
         
-        # Khóa cặp đã nổ trùng nhau quá nhiều (tránh bẫy lặp)
+        # LỌC CỨNG: Phạt nặng các cặp số đã cùng xuất hiện >= 2 lần trong 5 kỳ
         co_occur = np.dot(X.T, X)
-        hybrid_base[co_occur >= 2] *= 0.05
+        ensemble_mat[co_occur >= 2] *= 0.05
         
-        results = []
-        current_mat = hybrid_base.copy()
+        # Phạt các số bão hòa (nổ >= 3 kỳ)
+        freqs = X.sum(axis=0)
+        for d in range(D):
+            if freqs[d] >= 3:
+                ensemble_mat[d, :] *= 0.1
+                ensemble_mat[:, d] *= 0.1
+                
+        ensemble_mat = self._norm(ensemble_mat)
         
-        np.random.seed(2026) # Seed chuẩn hóa dao động pha
+        # ----------------------------------------------------------------------
+        # BỘ LỌC PHÂN RÃ BẬC 2 (SECOND-ORDER DECOUPLING SELECTION)
+        # ----------------------------------------------------------------------
+        # Cặp 1: Cặp số có điểm số Ensemble cao nhất toàn hệ thống (Primary Pair)
+        i1, j1 = np.unravel_index(np.argmax(ensemble_mat, axis=None), ensemble_mat.shape)
+        pair1 = sorted([int(i1 + 1), int(j1 + 1)])
+        score1 = float(ensemble_mat[i1, j1])
         
-        for step in range(1, 4):
-            # Bơm nhiễu Chaos theo từng nấc thời gian tương lai T+1, T+2, T+3
-            noise = np.random.uniform(0.85, 1.15, size=(D, D))
-            step_mat = self._norm(current_mat * noise)
-            
-            # Chọn cặp tối ưu nhất cho kỳ này
-            i, j = np.unravel_index(np.argmax(step_mat, axis=None), step_mat.shape)
-            pair = sorted([int(i + 1), int(j + 1)])
-            score = float(step_mat[i, j])
-            
-            results.append({
-                "period": f"Kỳ T+{step}",
-                "pair": pair,
-                "score": score
-            })
-            
-            # Giảm điểm số của các số đã chọn để kỳ sau tìm bù trừ pha mới
-            current_mat[i, :] *= 0.1
-            current_mat[:, i] *= 0.1
-            current_mat[j, :] *= 0.1
-            current_mat[:, j] *= 0.1
+        # Triệt tiêu năng lượng của Cặp 1 và các vùng lân cận để ép hệ thống tìm Cặp 2 độc lập
+        decoupled_mat = ensemble_mat.copy()
+        decoupled_mat[i1, :] = 0.0
+        decoupled_mat[:, i1] = 0.0
+        decoupled_mat[j1, :] = 0.0
+        decoupled_mat[:, j1] = 0.0
+        
+        # Cặp 2: Cặp số Bậc 2 bổ trợ pha (Secondary Pair)
+        i2, j2 = np.unravel_index(np.argmax(decoupled_mat, axis=None), decoupled_mat.shape)
+        pair2 = sorted([int(i2 + 1), int(j2 + 1)])
+        score2 = float(decoupled_mat[i2, j2])
 
         explanation = (
-            f"• **MÔ HÌNH TỔNG HỢP SIÊU THUẬT TOÁN (Hybrid Ensemble System):**\n"
-            f"  - **Tích hợp 5 Thuật toán Cũ:** GNN Graph (30%) + Transformer Attention (25%) + Vector Vuông Góc Chaos (25%) + Phase-Shift Dịch Pha (20%).\n"
-            f"  - **Tiến Hoá Dynamic 3 Kỳ:** Tự động mô phỏng dòng chảy xác suất qua 3 kỳ ($T+1, T+2, T+3$), triệt tiêu hiện tượng lệch pha 1/2 và tối ưu ngân sách đánh."
+            f"• **TÁI CẤU TRÚC MÔ HÌNH PHÂN TÍCH 1 KỲ (Dual-Pair Hybrid Dynamics):**\n"
+            f"  - **Tích Hợp Trọn Bộ 5 Thuật Toán:** Kết hợp GNN Đồ thị (25%), Transformer Attention (25%), Chaos Orthogonality Vector (30%), Shannon Entropy và Phase-Shift (20%).\n"
+            f"  - **Phân Rã Cặp Bậc 2 (Decoupling Gate):** Thay vì chốt 1 cặp rủi ro, hệ thống trích xuất 2 Cặp Số Bậc 2 độc lập không gian. Cặp 1 giữ vai trò Chủ lực, Cặp 2 đóng vai trò Lót pha triệt tiêu lệch pha vi mô."
         )
 
-        return results, explanation
+        return pair1, score1, pair2, score2, explanation
 
 # ==============================================================================
 # STREAMLIT UI DISPLAY
 # ==============================================================================
-st.title("🚀 Keno Ultra-Hybrid 3-Period Engine")
-st.caption("Tích hợp trọn bộ 5 thuật toán cũ: GNN + Transformer + Phase-Shift + Chaos Orthogonal + Entropy")
+st.title("⚡ Keno Restructured Dual-Pair Engine")
+st.caption("Tập trung 1 Kỳ Dự Báo • Tích hợp trọn bộ 5 thuật toán lõi • Chốt 2 Cặp Số Bậc 2 Độc Lập")
 
 raw_text_input = st.text_area(
     "Dán chuỗi số 5 kỳ (mỗi kỳ 1 dòng hoặc dán liên tục):",
     placeholder="Kì 1: 01 02 11 15 ...\nKì 2: ...",
     height=150,
-    key="raw_text_keno_hybrid"
+    key="raw_text_keno_dual"
 )
 
 if raw_text_input.strip():
@@ -141,28 +149,25 @@ if raw_text_input.strip():
             for num in all_numbers[k * 20 : (k + 1) * 20]:
                 matrix[k, num - 1] = 1.0
                 
-        st.success("🎉 Đã hoàn tất Tích hợp 5 Thuật Toán & Dự Phóng 3 Kỳ Đánh!")
+        st.success("🎉 Đã chạy xong Mô hình Tái Cấu Trúc Dual-Pair!")
         
-        engine = KenoHybridEngine(num_dim=80)
-        results, explanation = engine.process_hybrid_3_periods(matrix)
+        engine = RestructuredKenoDualPairEngine(num_dim=80)
+        pair1, score1, pair2, score2, explanation = engine.process_dual_pairs(matrix)
         
         st.markdown("---")
-        st.subheader("🎯 BẢNG DỰ PHÓNG TỔNG HỢP 3 KỲ ĐÁNH TỐI ƯU")
+        st.subheader("🎯 CẶP SỐ CHỐT 1 KỲ (2 CẶP BẬC 2 TỐI ƯU)")
         
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.metric(label=f"🔥 {results[0]['period']}", value=f"{results[0]['pair'][0]:02d} — {results[0]['pair'][1]:02d}")
-            st.caption(f"Hybrid Score: {results[0]['score']:.4f}")
-        with c2:
-            st.metric(label=f"🔥 {results[1]['period']}", value=f"{results[1]['pair'][0]:02d} — {results[1]['pair'][1]:02d}")
-            st.caption(f"Hybrid Score: {results[1]['score']:.4f}")
-        with c3:
-            st.metric(label=f"🔥 {results[2]['period']}", value=f"{results[2]['pair'][0]:02d} — {results[2]['pair'][1]:02d}")
-            st.caption(f"Hybrid Score: {results[2]['score']:.4f}")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric(label="🔥 CẶP 1 (CHỦ LỰC)", value=f"{pair1[0]:02d} — {pair1[1]:02d}")
+            st.caption(f"Ensemble Score: {score1:.4f}")
+        with col2:
+            st.metric(label="🛡️ CẶP 2 (LÓT PHA BẬC 2)", value=f"{pair2[0]:02d} — {pair2[1]:02d}")
+            st.caption(f"Decoupled Score: {score2:.4f}")
             
         st.markdown("---")
         st.info(explanation)
     else:
-        st.warning(f"⚠️ Mới nhận diện được {len(all_numbers)} số ({total_kies}/5 kỳ). Vui lòng dán đủ 5 kỳ!")
+        st.warning(f"⚠️ Mới nhận diện được {len(all_numbers)} số ({total_kies}/5 kỳ). Vui lòng dán đủ 5 kỳ (100 số)!")
 else:
-    st.info("👆 Dán chuỗi số 5 kỳ vào khung trên để chạy Mô hình Hybrid Tích Hợp.")
+    st.info("👆 Dán chuỗi số 5 kỳ vào khung trên để chạy Mô hình Dual-Pair 1 Kỳ.")
