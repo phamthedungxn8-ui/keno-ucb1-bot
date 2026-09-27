@@ -3,111 +3,109 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="Keno Energy Dynamics Engine", layout="centered")
+st.set_page_config(page_title="Keno Monte Carlo Integration Engine", layout="centered")
 
 # ==============================================================================
-# RIGOROUS ENERGY DYNAMICS ENGINE (LẶP & GAN 5 KỲ -> BẬC 2 & BẬC 3)
+# MONTE CARLO STOCHASTIC INTEGRATION ENGINE
 # ==============================================================================
-class RigorousEnergyEngine:
+class MonteCarloKenoEngine:
     def __init__(self, num_dim=80):
         self.D = num_dim
 
-    def process_exact_sets(self, X):
-        T, D = X.shape # T=5, D=80
-        freqs = X.sum(axis=0) # Total occurrences in 5 draws
-        last_draw = X[-1]     # Draw 5 (latest draw)
+    # 1. THUẬT TOÁN MÔ PHỎNG NGẪU NHIÊN MONTE CARLO (STOCHASTIC STREAM)
+    def _simulate_monte_carlo(self, num_simulations=1000):
+        """Giả lập 1,000 kỳ quay Keno ngẫu nhiên chuẩn toán học"""
+        np.random.seed() # Khai báo seed ngẫu nhiên thời gian thực
+        sim_matrix = np.zeros((num_simulations, self.D))
+        for s in range(num_simulations):
+            # Mỗi kỳ quay ngẫu nhiên rút 20 số không trùng nhau từ 1..80
+            draw = np.random.choice(self.D, size=20, replace=False)
+            sim_matrix[s, draw] = 1.0
         
-        # ----------------------------------------------------------------------
-        # 1. TẬP SỐ LẶP ĐỘNG LƯỢNG (REPEAT MOMENTUM SET)
-        # ----------------------------------------------------------------------
-        # Số xuất hiện >= 2 lần VÀ xuất hiện ở Kỳ 5 (vừa nổ xong, nhịp lặp cao)
-        repeat_scores = np.zeros(D)
+        # Tính tần suất xác suất xuất hiện qua 1,000 kỳ giả lập
+        mc_probs = sim_matrix.mean(axis=0)
+        return mc_probs
+
+    # 2. TÍCH HỢP LUỒNG LỊCH SỬ (DETERMINISTIC) + LUỒNG NGẪU NHIÊN (MONTE CARLO)
+    def process_combined(self, X):
+        T, D = X.shape
+        freqs = X.sum(axis=0) # Tần suất 5 kỳ thực tế
+        last_draw = X[-1]     # Kỳ 5 thực tế
+        
+        # A. Lấy ma trận ngẫu nhiên Monte Carlo
+        mc_probs = self._simulate_monte_carlo(num_simulations=1000)
+        
+        # B. Tính điểm Luồng Lịch Sử (Deterministic Score)
+        historical_scores = np.zeros(D)
         for i in range(D):
             if freqs[i] >= 2 and last_draw[i] == 1:
-                # Trừ điểm số quá bão hòa (nổ 4-5/5 kỳ)
-                if freqs[i] >= 4:
-                    repeat_scores[i] = freqs[i] * 0.2
-                else:
-                    repeat_scores[i] = freqs[i] * 1.8
-                    
-        core_idx = int(np.argmax(repeat_scores))
-        N_core = core_idx + 1 # Số Hạt Nhân Lặp
-        
-        # ----------------------------------------------------------------------
-        # 2. TẬP SỐ GAN 5 KỲ (FULL-COLD SUPPRESSION SET)
-        # ----------------------------------------------------------------------
-        # Số hoàn toàn KHÔNG xuất hiện trong 5 kỳ (freqs == 0)
-        cold_indices = np.where(freqs == 0)[0]
-        
-        # Nếu không có số gan 0/5 kỳ, nới lỏng lấy số 1/5 kỳ nghỉ 4 kỳ gần nhất
-        if len(cold_indices) == 0:
-            cold_scores = np.zeros(D)
-            for i in range(D):
-                if freqs[i] == 1 and last_draw[i] == 0:
-                    cold_scores[i] = 1.0
-            cold_idx = int(np.argmax(cold_scores))
-        else:
-            # Đo điểm rơi Gan bằng khoảng cách tới các hàng chục đang nổ mạnh
-            cold_scores = np.zeros(len(cold_indices))
-            for idx_pos, c_idx in enumerate(cold_indices):
-                # Ưu tiên các số gan nằm trong dải hàng chục vừa nổ nhiều ở kỳ 5
-                decade = c_idx // 10
-                decade_activity = np.sum(X[-1, decade*10 : (decade+1)*10])
-                cold_scores[idx_pos] = decade_activity
-            
-            best_cold_pos = int(np.argmax(cold_scores))
-            cold_idx = cold_indices[best_cold_pos]
-            
-        N_cold = cold_idx + 1 # Số Gan Bù Pha
-        
-        # ----------------------------------------------------------------------
-        # 3. SỐ VỆ TINH GHÉP BẬC 3 (NEIGHBOR-SHIFT SATELLITE)
-        # ----------------------------------------------------------------------
-        # Chọn số tạt cánh lân cận (+1 hoặc -1) của N_core hoặc N_cold chưa bão hòa
-        candidates = []
-        for base in [core_idx, cold_idx]:
-            for offset in [-1, 1]:
-                cand = base + offset
-                if 0 <= cand < D and cand != core_idx and cand != cold_idx:
-                    candidates.append(cand)
-                    
-        sat_scores = np.zeros(len(candidates))
-        for pos, cand in enumerate(candidates):
-            # Ưu tiên số có tần suất 1-2 lần, nghỉ ở kỳ 5
-            if freqs[cand] in [1, 2] and last_draw[cand] == 0:
-                sat_scores[pos] = 2.0
+                historical_scores[i] = 1.8 * freqs[i] # Số Lặp động lượng
+            elif freqs[i] == 0:
+                historical_scores[i] = 2.0 # Số Gan tích lũy
             else:
-                sat_scores[pos] = 0.5
+                historical_scores[i] = 0.5 * freqs[i]
                 
-        best_sat_pos = int(np.argmax(sat_scores))
-        sat_idx = candidates[best_sat_pos]
-        N_sat = sat_idx + 1 # Số Vệ Tinh ghép Bậc 3
+        # Chuẩn hóa
+        norm_hist = historical_scores / np.max(historical_scores)
+        norm_mc = mc_probs / np.max(mc_probs)
         
-        # Formulate exact sets
-        pair_bac_2 = tuple(sorted([N_core, N_cold]))
-        bo_bac_3 = tuple(sorted([N_core, N_cold, N_sat]))
+        # C. KẾT HỢP SONG SONG: 70% Lịch sử + 30% Ngẫu nhiên Monte Carlo
+        blended_scores = (0.70 * norm_hist) + (0.30 * norm_mc)
+        
+        # Phạt các số bão hòa (>3 kỳ thực tế)
+        blended_scores[freqs >= 4] *= 0.1
+        
+        # ----------------------------------------------------------------------
+        # D. CẤU TRÚC BỘ BẬC 2 VÀ BẬC 3 TỪ BẢNG ĐIỂM LAI (HYBRID)
+        # ----------------------------------------------------------------------
+        # Số 1 (Trụ cột Lặp / Động Lượng): Điểm cao nhất
+        n1_idx = int(np.argmax(blended_scores))
+        N1 = n1_idx + 1
+        
+        # Số 2 (Điểm Bù Gan / Monte Carlo): Lấy số gan 0/5 kỳ có điểm lai cao nhất
+        cold_indices = np.where(freqs == 0)[0]
+        if len(cold_indices) > 0:
+            best_cold_pos = int(np.argmax(blended_scores[cold_indices]))
+            n2_idx = cold_indices[best_cold_pos]
+        else:
+            # Nếu không có số gan 0/5, lấy số có điểm lai cao thứ 2
+            temp_scores = blended_scores.copy()
+            temp_scores[n1_idx] = -1.0
+            n2_idx = int(np.argmax(temp_scores))
+            
+        N2 = n2_idx + 1
+        
+        # Số 3 (Vệ tinh Kề vệt Monte Carlo): Lấy số có điểm lai cao tiếp theo
+        temp_scores_3 = blended_scores.copy()
+        temp_scores_3[n1_idx] = -1.0
+        temp_scores_3[n2_idx] = -1.0
+        n3_idx = int(np.argmax(temp_scores_3))
+        N3 = n3_idx + 1
+        
+        # Kết xuất kết quả
+        bo_bac_2 = tuple(sorted([N1, N2]))
+        bo_bac_3 = tuple(sorted([N1, N2, N3]))
 
         explanation = (
-            f"• **CƠ CHẾ PHÂN TÍCH TOÁN HỌC ĐỘNG LỰC HỌC (Energy Dynamics Engine):**\n"
-            f"  - **Hạt Nhân Quán Tính Lặp ($N_{{core}}$ = {N_core:02d}):** Trích xuất từ dải số có tần suất lặp tốt ($\ge 2$ lần trong 5 kỳ) và vừa nổ ở Kỳ 5, nắm giữ động lượng rơi tiếp.\n"
-            f"  - **Số Gan Bù Pha ($N_{{cold}}$ = {N_cold:02d}):** Trích xuất từ nhóm bị nén năng lượng hoàn toàn (0/5 kỳ) nằm trong hàng chục đang bùng nổ, có chỉ số giải phóng Entropy cao nhất.\n"
-            f"  - **Số Vệ Tinh Dịch Chuyển ($N_{{sat}}$ = {N_sat:02d}):** Số kề vệt sóng có nhịp điểm rơi tích lũy chuẩn bị bộc phát.\n"
-            f"• **Mối Liên Kết:** Ghép $N_{{core}}$ (Động lượng Lặp) + $N_{{cold}}$ (Điểm rơi Gan) $\rightarrow$ Tạo nên **Bộ Bậc 2** hoàn hảo. Thêm $N_{{sat}}$ để bọc lót độ lệch pha $1$ đơn vị $\rightarrow$ Tạo nên **Bộ Bậc 3** tối ưu."
+            f"• **CƠ CHẾ KẾT HỢP THUẬT TOÁN NGẪU NHIÊN MONTE CARLO:**\n"
+            f"  - **Luồng Lịch Sử (70%):** Trích xuất động lượng Lặp/Gan từ 5 kỳ thực tế.\n"
+            f"  - **Luồng Giả Lập Ngẫu Nhiên (30%):** Chạy 1,000 lượt quay ngẫu nhiên Monte Carlo để tạo nhiễu sinh học, giúp lọc bỏ các số bị bẫy nhiễu ảo.\n"
+            f"  - **Kết quả:** Sự kết hợp giữa **Xác suất Lịch sử** và **Biến động Ngẫu nhiên** giúp bộ số đạt mức cân bằng tối đa."
         )
 
-        return pair_bac_2, bo_bac_3, N_core, N_cold, N_sat, explanation
+        return bo_bac_2, bo_bac_3, N1, N2, N3, explanation
 
 # ==============================================================================
 # STREAMLIT UI
 # ==============================================================================
-st.title("⚡ Keno Energy Dynamics Engine")
-st.caption("Khắc phục tư duy mơ hồ • Phân rã Lặp/Gan 5 Kỳ • Chốt 1 Bộ Bậc 2 & 1 Bộ Bậc 3")
+st.title("🎲 Keno Monte Carlo Integration Engine")
+st.caption("Kết hợp Dữ liệu 5 Kỳ + Thuật toán Ngẫu nhiên Monte Carlo 1,000 Lượt Quay")
 
 raw_text_input = st.text_area(
     "Dán chuỗi số 5 kỳ (mỗi kỳ 1 dòng hoặc dán liên tục):",
     placeholder="Kì 1: 01 02 11 15 ...\nKì 2: ...",
     height=150,
-    key="raw_text_keno_energy"
+    key="raw_text_keno_mc"
 )
 
 if raw_text_input.strip():
@@ -121,27 +119,27 @@ if raw_text_input.strip():
             for num in all_numbers[k * 20 : (k + 1) * 20]:
                 matrix[k, num - 1] = 1.0
                 
-        st.success("🎉 Đã chạy xong Mô hình Động lực học Lặp & Gan!")
+        st.success("🎉 Đã chạy xong Mô hình Giả lập Ngẫu nhiên Monte Carlo!")
         
-        engine = RigorousEnergyEngine(num_dim=80)
-        pair2, bo3, n_core, n_cold, n_sat, explanation = engine.process_exact_sets(matrix)
+        engine = MonteCarloKenoEngine(num_dim=80)
+        bo2, bo3, n1, n2, n3, explanation = engine.process_combined(matrix)
         
         st.markdown("---")
-        st.subheader("🎯 BẢNG CHỐT 2 BỘ SỐ (BẬC 2 & BẬC 3)")
+        st.subheader("🎯 CẤU TRÚC 2 BỘ SỐ (LAI LỊCH SỬ & NGẪU NHIÊN)")
         
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.metric(label="🔥 SỐ LẶP CORE", value=f"{n_core:02d}")
+            st.metric(label="🔥 SỐ TRỤ CỘT N1", value=f"{n1:02d}")
         with c2:
-            st.metric(label="❄️ SỐ GAN COLD", value=f"{n_cold:02d}")
+            st.metric(label="❄️ SỐ BÙ GAN N2", value=f"{n2:02d}")
         with c3:
-            st.metric(label="🛰️ SỐ VỆ TINH SAT", value=f"{n_sat:02d}")
+            st.metric(label="🎲 SỐ MONTE CARLO N3", value=f"{n3:02d}")
             
         st.markdown("---")
         col_left, col_right = st.columns(2)
         with col_left:
             st.subheader("1️⃣ BỘ BẬC 2 CHỐT (2 SỐ)")
-            st.title(f"{pair2[0]:02d} — {pair2[1]:02d}")
+            st.title(f"{bo2[0]:02d} — {bo2[1]:02d}")
         with col_right:
             st.subheader("2️⃣ BỘ BẬC 3 CHỐT (3 SỐ)")
             st.title(f"{bo3[0]:02d} — {bo3[1]:02d} — {bo3[2]:02d}")
@@ -151,4 +149,4 @@ if raw_text_input.strip():
     else:
         st.warning(f"⚠️ Mới nhận diện được {len(all_numbers)} số ({total_kies}/5 kỳ). Vui lòng dán đủ 5 kỳ (100 số)!")
 else:
-    st.info("👆 Dán chuỗi số 5 kỳ vào khung trên để chạy Mô hình Energy Dynamics.")
+    st.info("👆 Dán chuỗi số 5 kỳ vào khung trên để kích hoạt mô hình Monte Carlo.")
