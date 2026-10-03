@@ -9,7 +9,6 @@ st.set_page_config(page_title="Collatz Multi-Kernel Engine v2", layout="centered
 # KERNEL 1: 2-ADIC COLLATZ & EXHAUSTION FILTER
 # ==============================================================================
 class Collatz2AdicKernelV2:
-    """Tăng cường giả thuyết Collatz 3n+1 kết hợp Bộ lọc Bão hòa Động lượng"""
     def analyze(self, X):
         T, D = X.shape
         freqs = X.sum(axis=0).astype(int)
@@ -18,16 +17,12 @@ class Collatz2AdicKernelV2:
         for d in range(D):
             val = int(freqs[d])
             if val > 0:
-                # Phép biến đổi Collatz 3n + 1
                 collatz_val = 3 * val + 1
-                # Đếm số bit 0 ở cuối (2-adic valuation)
                 tz = (collatz_val & -collatz_val).bit_length() - 1
                 scores[d] = tz * 1.618 + (collatz_val.bit_length() * 0.5)
             else:
-                # Giảm ưu tiên số gan tuyệt đối để tránh bẫy gan kéo dài
                 scores[d] = 2.0 
                 
-        # BỘ LỌC TRIỆT TIÊU BÃO HÒA (Phạt nặng nếu về 2 kỳ liên tiếp như số 24)
         for d in range(D):
             if T >= 2 and X[-1, d] == 1 and X[-2, d] == 1:
                 scores[d] *= 0.15 
@@ -36,10 +31,9 @@ class Collatz2AdicKernelV2:
         return scores / max_s if max_s > 0 else scores
 
 # ==============================================================================
-# KERNEL 2: ATTRACTOR KHÔNG GIAN PHA (PHASE SPACE ATTRACTOR)
+# KERNEL 2: ATTRACTOR KHÔNG GIAN PHA
 # ==============================================================================
 class PhaseSpaceAttractorKernelV2:
-    """Đo độ lệch đạo hàm bậc 1 & 2 trên quỹ đạo không gian pha"""
     def analyze(self, X):
         T, D = X.shape
         scores = np.zeros(D)
@@ -48,8 +42,6 @@ class PhaseSpaceAttractorKernelV2:
             traj = X[:, d]
             velocity = np.diff(traj)
             acceleration = np.diff(velocity) if len(velocity) > 1 else np.array([0])
-            
-            # Tính khoảng cách Euclidean đến tâm hút Attractor
             attractor_dist = np.sqrt(np.mean(velocity**2) + np.mean(acceleration**2))
             scores[d] = 1.0 / (1.0 + attractor_dist)
             
@@ -60,7 +52,6 @@ class PhaseSpaceAttractorKernelV2:
 # KERNEL 3: MODULAR TRANSITION Z/8Z
 # ==============================================================================
 class ModularOrbitKernelV2:
-    """Ma trận đồng dư Z/8Z giải phóng năng lượng nhịp"""
     def analyze(self, X):
         T, D = X.shape
         scores = np.zeros(D)
@@ -81,15 +72,12 @@ class ModularOrbitKernelV2:
 # KERNEL 4: WAVELET LOGARITHMIC & FIBONACCI HARMONICS
 # ==============================================================================
 class WaveletFibonacciKernelV2:
-    """Chuyển đổi sóng Logarit và giao thoa Tỷ lệ Vàng Phi"""
     def analyze(self, X):
         T, D = X.shape
         freqs = X.sum(axis=0) + 1.0
         
         log_wave = np.log2(freqs)
         gradients = np.gradient(log_wave)
-        
-        # Gia tải tần số điều hòa Golden Ratio (1.618)
         scores = np.abs(gradients) * 1.618
         
         max_s = np.max(scores)
@@ -112,16 +100,13 @@ class CollatzEngineV2:
         s3 = self.k3.analyze(X)
         s4 = self.k4.analyze(X)
         
-        # TÍNH TRỌNG SỐ THÍCH ỨNG ĐỘNG (ADAPTIVE WEIGHTS)
         recent_density = X[-3:].sum(axis=1) if T >= 3 else X.sum(axis=1)
         volatility = np.std(recent_density)
         
         if volatility > 1.2:
-            # Chuỗi biến động mạnh -> Tăng ưu tiên Sóng Wavelet & Đồng dư
             w1, w2, w3, w4 = 0.15, 0.25, 0.25, 0.35
             mode_label = "Chế độ Sóng Thích ứng (Ưu tiên Wavelet & Modulo)"
         else:
-            # Chuỗi ổn định -> Cân bằng 4 Kernel
             w1, w2, w3, w4 = 0.20, 0.30, 0.25, 0.25
             mode_label = "Chế độ Cân bằng Không gian Pha"
             
@@ -130,10 +115,8 @@ class CollatzEngineV2:
         freqs = X.sum(axis=0)
         last_draw = X[-1]
         
-        # TRÍCH XUẤT N1: Động lượng nhịp điệu (Loại bỏ các số bão hòa như 24)
         valid_n1 = []
         for d in range(D):
-            # Điều kiện: Xuất hiện ở Kỳ 5 nhưng KHÔNG xuất hiện ở Kỳ 4 (Tránh bẫy cháy 2 kỳ)
             if last_draw[d] == 1 and (T < 2 or X[-2, d] == 0) and freqs[d] >= 2:
                 valid_n1.append(d)
                 
@@ -143,13 +126,11 @@ class CollatzEngineV2:
             best_n1 = int(np.argmax(total_energy))
         N1 = best_n1 + 1
         
-        # TRÍCH XUẤT N2: Sóng Wavelet Phi Balancer (Nhịp giống con số 08)
         temp_e2 = total_energy.copy()
         temp_e2[best_n1] = -1.0
         best_n2 = int(np.argmax(temp_e2))
         N2 = best_n2 + 1
         
-        # TRÍCH XUẤT N3: Hồi pha Attractor Trung tính (Tránh bẫy số gan dài như 80)
         temp_e3 = total_energy.copy()
         temp_e3[best_n1] = -1.0
         temp_e3[best_n2] = -1.0
@@ -190,8 +171,8 @@ if raw_input.strip():
         engine = CollatzEngineV2()
         bo2, bo3, n1, n2, n3, mode, scores, weights = engine.process(matrix)
         
-        st.success(f"⚡ Phân tích thành công {kies_to_use} kỳ dữ liệu bằng Engine v2!")
-        st.info(f"📌 **Cấu hình thuật toán:** {mode}")
+        st.success("⚡ Phân tích thành công dữ liệu bằng Engine v2!")
+        st.info("📌 Cấu hình thuật toán: " + mode)
         
         st.markdown("---")
         st.subheader("🎯 TỔNG HỢP BỘ SỐ CHỐT MỚI (V2)")
@@ -216,19 +197,14 @@ if raw_input.strip():
         st.subheader("📊 Mức Năng Lượng Đã Điều Chỉnh Của Các Kernel")
         df_res = pd.DataFrame({
             "Con số": [f"Số {n1:02d}", f"Số {n2:02d}", f"Số {n3:02d}"],
-            f"K1 (Collatz 2-adic) [{weights[0]*100:.0f}%]": [f"{scores[0][n1-1]:.2f}", f"{scores[0][n2-1]:.2f}", f"{scores[0][n3-1]:.2f}"],
-            f"K2 (Attractor) [{weights[1]*100:.0f}%]": [f"{scores[1][n1-1]:.2f}", f"{scores[1][n2-1]:.2f}", f"{scores[1][n3-1]:.2f}"],
-            f"K3 (Modulo Z/8Z) [{weights[2]*100:.0f}%]": [f"{scores[2][n1-1]:.2f}", f"{scores[2][n2-1]:.2f}", f"{scores[2][n3-1]:.2f}"],
-            f"K4 (Wavelet Phi) [{weights[3]*100:.0f}%]": [f"{scores[3][n1-1]:.2f}", f"{scores[3][n2-1]:.2f}", f"{scores[3][n3-1]:.2f}"]
+            "K1 (Collatz 2-adic)": [f"{scores[0][n1-1]:.2f}", f"{scores[0][n2-1]:.2f}", f"{scores[0][n3-1]:.2f}"],
+            "K2 (Attractor)": [f"{scores[1][n1-1]:.2f}", f"{scores[1][n2-1]:.2f}", f"{scores[1][n3-1]:.2f}"],
+            "K3 (Modulo Z/8Z)": [f"{scores[2][n1-1]:.2f}", f"{scores[2][n2-1]:.2f}", f"{scores[2][n3-1]:.2f}"],
+            "K4 (Wavelet Phi)": [f"{scores[3][n1-1]:.2f}", f"{scores[3][n2-1]:.2f}", f"{scores[3][n3-1]:.2f}"]
         })
         st.table(df_res)
     else:
-        st.warning(f"Cần tối thiểu 5 kỳ dữ liệu (100 số). Hiện tại đọc được {total_kies} kỳ.")3 (Modulo Z/8Z) [{weights[2]*100:.0f}%]": [f"{kernel_scores[2][n1-1]:.2f}", f"{kernel_scores[2][n2-1]:.2f}", f"{kernel_scores[2][n3-1]:.2f}"],
-            f"Kernel 4 (Wavelet Phi) [{weights[3]*100:.0f}%]": [f"{kernel_scores[3][n1-1]:.2f}", f"{kernel_scores[3][n2-1]:.2f}", f"{kernel_scores[3][n3-1]:.2f}"]
-        })
-        st.table(df_kernels)
-        
-    else:
-        st.warning(f"⚠️ Đã đọc được {len(all_numbers)} số ({total_kies}/5 kỳ tối thiểu). Vui lòng cung cấp từ 5 đến 10 kỳ!")
+        msg_err = "Cần tối thiểu 5 kỳ dữ liệu (100 số). Hiện tại đọc được " + str(total_kies) + " kỳ."
+        st.warning(msg_err)
 else:
-    st.info("👆 Dán chuỗi 5–10 kỳ Keno vào khung văn bản phía trên để khởi chạy mô hình v2.")
+    st.info("Dán chuỗi 5–10 kỳ Keno vào khung văn bản phía trên để khởi chạy mô hình v2.")
