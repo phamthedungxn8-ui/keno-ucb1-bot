@@ -3,17 +3,16 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="Collatz Multi-Kernel Engine v2", layout="centered")
+st.set_page_config(page_title="Collatz Multi-Kernel Engine v2.1", layout="centered")
 
 # ==============================================================================
-# KERNEL 1: 2-ADIC COLLATZ & EXHAUSTION FILTER
+# 4 KERNEL PHÂN TÍCH CHUYÊN SÂU
 # ==============================================================================
 class Collatz2AdicKernelV2:
     def analyze(self, X):
         T, D = X.shape
         freqs = X.sum(axis=0).astype(int)
         scores = np.zeros(D)
-        
         for d in range(D):
             val = int(freqs[d])
             if val > 0:
@@ -21,72 +20,51 @@ class Collatz2AdicKernelV2:
                 tz = (collatz_val & -collatz_val).bit_length() - 1
                 scores[d] = tz * 1.618 + (collatz_val.bit_length() * 0.5)
             else:
-                scores[d] = 2.0 
-                
-        for d in range(D):
-            if T >= 2 and X[-1, d] == 1 and X[-2, d] == 1:
-                scores[d] *= 0.15 
-                
+                scores[d] = 1.0 # Hạ thấp tối đa số chưa về
         max_s = np.max(scores)
         return scores / max_s if max_s > 0 else scores
 
-# ==============================================================================
-# KERNEL 2: ATTRACTOR KHÔNG GIAN PHA
-# ==============================================================================
 class PhaseSpaceAttractorKernelV2:
     def analyze(self, X):
         T, D = X.shape
         scores = np.zeros(D)
-        
         for d in range(D):
             traj = X[:, d]
             velocity = np.diff(traj)
             acceleration = np.diff(velocity) if len(velocity) > 1 else np.array([0])
             attractor_dist = np.sqrt(np.mean(velocity**2) + np.mean(acceleration**2))
             scores[d] = 1.0 / (1.0 + attractor_dist)
-            
         max_s = np.max(scores)
         return scores / max_s if max_s > 0 else scores
 
-# ==============================================================================
-# KERNEL 3: MODULAR TRANSITION Z/8Z
-# ==============================================================================
 class ModularOrbitKernelV2:
     def analyze(self, X):
         T, D = X.shape
         scores = np.zeros(D)
-        
         last_draw_indices = np.where(X[-1] == 1)[0] + 1
         last_mods = [n % 8 for n in last_draw_indices]
         mod_counts = np.bincount(last_mods, minlength=8)
-        
         for d in range(D):
             num = d + 1
             m = num % 8
             scores[d] = mod_counts[m] * 1.12
-            
         max_s = np.max(scores)
         return scores / max_s if max_s > 0 else scores
 
-# ==============================================================================
-# KERNEL 4: WAVELET LOGARITHMIC & FIBONACCI HARMONICS
-# ==============================================================================
 class WaveletFibonacciKernelV2:
     def analyze(self, X):
         T, D = X.shape
         freqs = X.sum(axis=0) + 1.0
-        
         log_wave = np.log2(freqs)
         gradients = np.gradient(log_wave)
         scores = np.abs(gradients) * 1.618
-        
         max_s = np.max(scores)
         return scores / max_s if max_s > 0 else scores
 
 # ==============================================================================
-# INTEGRATOR: ADAPTIVE COLLATZ ENGINE V2
+# MASTER INTEGRATOR V2.1 (SỬA LỖI ĐỘNG LƯỢNG)
 # ==============================================================================
-class CollatzEngineV2:
+class CollatzEngineV2_1:
     def __init__(self):
         self.k1 = Collatz2AdicKernelV2()
         self.k2 = PhaseSpaceAttractorKernelV2()
@@ -113,28 +91,25 @@ class CollatzEngineV2:
         total_energy = (w1 * s1) + (w2 * s2) + (w3 * s3) + (w4 * s4)
         
         freqs = X.sum(axis=0)
-        last_draw = X[-1]
         
-        valid_n1 = []
+        # 1. BỘ LỌC TRIỆT TIÊU BÃO HÒA TRỰC TIẾP TRÊN TOTAL_ENERGY
         for d in range(D):
-            if last_draw[d] == 1 and (T < 2 or X[-2, d] == 0) and freqs[d] >= 2:
-                valid_n1.append(d)
-                
-        if len(valid_n1) > 0:
-            best_n1 = valid_n1[np.argmax(total_energy[valid_n1])]
-        else:
-            best_n1 = int(np.argmax(total_energy))
+            # Nếu về liên tiếp 2 kỳ cuối (như số 24) -> Nhân trực tiếp 0.1 vào Total Energy
+            if T >= 2 and X[-1, d] == 1 and X[-2, d] == 1:
+                total_energy[d] *= 0.10
+            # Nếu là số Gan (tần số = 0, như số 80) -> Phạt 50% Total Energy để tránh bẫy gan kéo dài
+            if freqs[d] == 0:
+                total_energy[d] *= 0.50
+
+        # 2. TRÍCH XUẤT N1, N2, N3 CHUẨN XÁC THEO MẮC NĂNG LƯỢNG MỚI
+        sorted_indices = np.argsort(total_energy)[::-1] # Sắp xếp giảm dần
+        
+        best_n1 = sorted_indices[0]
+        best_n2 = sorted_indices[1]
+        best_n3 = sorted_indices[2]
+        
         N1 = best_n1 + 1
-        
-        temp_e2 = total_energy.copy()
-        temp_e2[best_n1] = -1.0
-        best_n2 = int(np.argmax(temp_e2))
         N2 = best_n2 + 1
-        
-        temp_e3 = total_energy.copy()
-        temp_e3[best_n1] = -1.0
-        temp_e3[best_n2] = -1.0
-        best_n3 = int(np.argmax(temp_e3))
         N3 = best_n3 + 1
         
         bo_bac_2 = tuple(sorted([N1, N2]))
@@ -143,10 +118,10 @@ class CollatzEngineV2:
         return bo_bac_2, bo_bac_3, N1, N2, N3, mode_label, (s1, s2, s3, s4), (w1, w2, w3, w4)
 
 # ==============================================================================
-# STREAMLIT USER INTERFACE
+# STREAMLIT UI
 # ==============================================================================
-st.title("♟️ Collatz Multi-Kernel Engine v2")
-st.caption("Mô hình tái tạo nâng cấp: Lọc Bão hòa Động lượng • Thích ứng Trọng số Động")
+st.title("♟️ Collatz Multi-Kernel Engine v2.1")
+st.caption("Khắc phục triệt để bẫy số cháy liên tiếp & số gan kéo dài")
 
 raw_input = st.text_area(
     "Dán dữ liệu từ 5 đến 10 kỳ vào đây:",
@@ -168,14 +143,14 @@ if raw_input.strip():
             for num in used_numbers[k * 20 : (k + 1) * 20]:
                 matrix[k, num - 1] = 1.0
                 
-        engine = CollatzEngineV2()
+        engine = CollatzEngineV2_1()
         bo2, bo3, n1, n2, n3, mode, scores, weights = engine.process(matrix)
         
-        st.success("⚡ Phân tích thành công dữ liệu bằng Engine v2!")
+        st.success("⚡ Phân tích thành công dữ liệu bằng Engine v2.1!")
         st.info("📌 Cấu hình thuật toán: " + mode)
         
         st.markdown("---")
-        st.subheader("🎯 TỔNG HỢP BỘ SỐ CHỐT MỚI (V2)")
+        st.subheader("🎯 TỔNG HỢP BỘ SỐ CHỐT MỚI (V2.1)")
         
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -207,4 +182,4 @@ if raw_input.strip():
         msg_err = "Cần tối thiểu 5 kỳ dữ liệu (100 số). Hiện tại đọc được " + str(total_kies) + " kỳ."
         st.warning(msg_err)
 else:
-    st.info("Dán chuỗi 5–10 kỳ Keno vào khung văn bản phía trên để khởi chạy mô hình v2.")
+    st.info("Dán chuỗi 5–10 kỳ Keno vào khung văn bản phía trên để khởi chạy mô hình v2.1.")
