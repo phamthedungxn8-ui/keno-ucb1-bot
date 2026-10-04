@@ -3,33 +3,42 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="MDM-IDS v13.0 Anti-Repetition Engine", layout="centered")
+st.set_page_config(page_title="MDM-IDS v13.1 Anti-Repetition Engine", layout="centered")
 
 # ==============================================================================
-# MÔ HÌNH MDM-IDS v13.0: DYNAMIC PERTURBATION & TOPOLOGICAL PHASE SHIFT (DP-TPS)
+# MÔ HÌNH MDM-IDS v13.1: FIX TYPEERROR & DYNAMIC PERTURBATION ENGINE
 # ==============================================================================
 class MDM_IDS_Bac2_v13_Dynamic:
     def __init__(self, dim=80):
         self.D = dim
 
     def compute_mutual_information_dynamic(self, X):
-        """1. ENTROPY SHANNON TƯƠNG HỖ VỚI TRỌNG SỐ SUY GIẢM THEO THỜI GIAN"""
+        """1. ENTROPY SHANNON TƯƠNG HỖ VỚI TRỌNG SỐ SUY GIẢM THỜI GIAN (FIXED BUG)"""
         T, D = X.shape
-        # Trạng thái gần đây có trọng số lớn hơn để loại bỏ tín hiệu kẹt lặp
-        weights = np.exp(np.linalg.norm(np.arange(T)) / float(T))
+        # Trạng số thời gian cho từng kỳ
+        weights = np.exp(np.linspace(0, 1, T))
         weights /= np.sum(weights)
         
         mi_matrix = np.zeros((D, D))
         for i in range(D):
             for j in range(i + 1, D):
                 x, y = X[:, i], X[:, j]
-                # Tương quan weighted co-occurrence
-                co_presence = np.sum((x == 1) & (y == 1) * weights)
-                p_i = np.sum((x == 1) * weights) + 1e-9
-                p_j = np.sum((y == 1) * weights) + 1e-9
                 
-                mi = co_presence * np.log2((co_presence + 1e-9) / (p_i * p_j))
-                val = max(0.0, mi)
+                # Ép kiểu bool sang float trước khi nhân với weights để tránh TypeError
+                mask_co = ((x == 1) & (y == 1)).astype(float)
+                mask_i = (x == 1).astype(float)
+                mask_j = (y == 1).astype(float)
+                
+                co_presence = np.sum(mask_co * weights)
+                p_i = np.sum(mask_i * weights) + 1e-9
+                p_j = np.sum(mask_j * weights) + 1e-9
+                
+                if co_presence > 0:
+                    mi = co_presence * np.log2((co_presence + 1e-9) / (p_i * p_j))
+                else:
+                    mi = 0.0
+                    
+                val = max(0.0, float(mi))
                 mi_matrix[i, j] = val
                 mi_matrix[j, i] = val
                 
@@ -38,22 +47,23 @@ class MDM_IDS_Bac2_v13_Dynamic:
     def compute_topological_phase_shift(self, X):
         """2. PHÁT HIỆN DỊCH PHA TOPO CHỐNG LẶP THANH GHI"""
         T, D = X.shape
-        phase_shifts = np.zeros((D, D))
+        phase_shifts = np.ones((D, D))
         
+        if T < 2:
+            return phase_shifts
+
         for i in range(D):
             for j in range(i + 1, D):
-                # Tín hiệu dịch pha qua phép biến đổi Hilbert ngắn hạn
                 sig_i = X[:, i] - np.mean(X[:, i])
                 sig_j = X[:, j] - np.mean(X[:, j])
                 
-                # Đo độ phân cực hướng thay đổi giữa 2 kỳ gần nhất
-                delta_i = sig_i[-1] - sig_i[-2] if T >= 2 else 0
-                delta_j = sig_j[-1] - sig_j[-2] if T >= 2 else 0
+                delta_i = sig_i[-1] - sig_i[-2]
+                delta_j = sig_j[-1] - sig_j[-2]
                 
-                # Nếu hai số thay đổi ngược chiều hoặc đứng yên quá lâu -> giảm điểm
-                shift_factor = 1.0 + (delta_i * delta_j)
-                phase_shifts[i, j] = max(0.1, shift_factor)
-                phase_shifts[j, i] = max(0.1, shift_factor)
+                shift_factor = 1.0 + float(delta_i * delta_j)
+                val = max(0.1, shift_factor)
+                phase_shifts[i, j] = val
+                phase_shifts[j, i] = val
                 
         return phase_shifts
 
@@ -83,32 +93,29 @@ class MDM_IDS_Bac2_v13_Dynamic:
                 # TÍCH CHÉO PHÁ VỠ CÂN BẰNG LẶP SỐ
                 score = (f_mi ** 1.5) * (f_phase ** 2.0) * (f_topo ** 1.2)
                 
-                # --- KHỐI PHẠT CHỐNG LẶP SỐ & BẤY MÔ HÌNH CŨ ---
-                # Phạt số đã xuất hiện liên tục / bão hòa (>= 3 lần)
+                # --- LỌC KHỐI PHẠT CHỐNG LẶP & NGHẼN MẠCH ---
                 if freqs[i] >= 3: score *= 0.0001
                 if freqs[j] >= 3: score *= 0.0001
                 
-                # Phạt nghẽn mạch nổ trùng ở T-1
+                # Phạt nổ trùng ở kỳ gần nhất T-1
                 if X[-1, i] == 1 and X[-1, j] == 1:
                     score *= 0.00001
                     
-                # Phạt trùng nổ cách 1 kỳ (T-2) để tránh lặp chu kỳ ngắn
+                # Phạt nổ trùng ở T-2
                 if T >= 2 and X[-2, i] == 1 and X[-2, j] == 1:
                     score *= 0.01
                     
-                # Phạt số gan bão hòa (0 lần xuất hiện trong cửa sổ)
+                # Phạt số lỳ âm
                 if freqs[i] == 0 and freqs[j] == 0:
                     score *= 0.001
                     
                 pair_scores[(i + 1, j + 1)] = score
                 
-        # Sắp xếp danh sách 3.160 cặp Bậc 2
         sorted_pairs = sorted(pair_scores.items(), key=lambda x: x[1], reverse=True)
         
         best_pair = sorted_pairs[0][0]
         best_score = sorted_pairs[0][1]
         
-        # Khai thác 3 cặp phụ hoàn toàn tách biệt
         backup_pairs = []
         for pair, sc in sorted_pairs[1:]:
             if pair[0] not in best_pair and pair[1] not in best_pair:
@@ -119,10 +126,10 @@ class MDM_IDS_Bac2_v13_Dynamic:
         return best_pair, best_score, backup_pairs, sorted_pairs
 
 # ==============================================================================
-# STREAMLIT UI - MDM-IDS v13.0
+# STREAMLIT UI - MDM-IDS v13.1
 # ==============================================================================
-st.title("🔄 MDM-IDS v13.0: DYNAMIC PERTURBATION ENGINE")
-st.caption("Khử Tín Hiệu Lặp Số • Dịch Pha Topo Hilbert-Huang • Shannon Weighting • Quét Tự Do 3.160 Cặp")
+st.title("🔄 MDM-IDS v13.1: DYNAMIC PERTURBATION ENGINE")
+st.caption("Khắc Phục Lỗi Type • Dịch Pha Topo Hilbert-Huang • Shannon Weighting • Quét Tự Do 3.160 Cặp")
 
 raw_input = st.text_area(
     "Dán dữ liệu 5 đến 10 kỳ Keno mới nhất vào đây:",
@@ -147,7 +154,7 @@ if raw_input.strip():
         engine = MDM_IDS_Bac2_v13_Dynamic()
         best_pair, best_score, backup_pairs, all_sorted = engine.process_bac2_v13(matrix)
         
-        st.success(f"⚡ Đã quét triệt tiêu lặp số & tái phân bố Topo v13.0 trên {kies_to_use} kỳ dữ liệu!")
+        st.success(f"⚡ Đã sửa lỗi & tính toán xong kết quả v13.1 trên {kies_to_use} kỳ dữ liệu!")
         
         st.markdown("---")
         st.subheader("🔥 CẶP BẬC 2 CHUYỂN PHA DỘNG TỐI ƯU (CHỐT 2/2)")
@@ -161,7 +168,7 @@ if raw_input.strip():
         st.markdown(
             f"<div style='text-align: center; padding: 18px; background-color: #1A0903; border-radius: 12px; border: 2px solid #FF5500; box-shadow: 0 0 15px rgba(255, 85, 0, 0.4);'>"
             f"<h1 style='color: #FF5500; margin:0; font-size: 2.8rem;'>CẶP BẬC 2: {best_pair[0]:02d} — {best_pair[1]:02d}</h1>"
-            f"<p style='color: #888; margin:5px 0 0 0;'>Điểm xung lực dịch pha v13.0: {best_score:.8f}</p>"
+            f"<p style='color: #888; margin:5px 0 0 0;'>Điểm xung lực dịch pha v13.1: {best_score:.8f}</p>"
             f"</div>", 
             unsafe_allow_dict=True
         )
@@ -183,10 +190,10 @@ if raw_input.strip():
         df_top = pd.DataFrame({
             "Thứ hạng": [f"Top {i+1}" for i in range(10)],
             "Cặp Bậc 2 Biến Động": [f"({all_sorted[i][0][0]:02d}, {all_sorted[i][0][1]:02d})" for i in range(10)],
-            "Điểm Xung Lực v13.0": [f"{all_sorted[i][1]:.8f}" for i in range(10)]
+            "Điểm Xung Lực v13.1": [f"{all_sorted[i][1]:.8f}" for i in range(10)]
         })
         st.table(df_top)
     else:
         st.warning(f"Cần tối thiểu 5 kỳ dữ liệu (100 số). Hệ thống hiện nhận diện được {total_kies} kỳ.")
 else:
-    st.info("Dán dữ liệu Keno vào khung trên để khởi chạy bộ xử lý v13.0.")
+    st.info("Dán dữ liệu Keno vào khung trên để khởi chạy bộ xử lý v13.1.")
