@@ -3,134 +3,135 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="MDM-IDS Quantum-Classical Engine v1.1", layout="centered")
+st.set_page_config(page_title="MDM-IDS v2.0 - Bậc 2 Dual-Core Engine", layout="centered")
 
 # ==============================================================================
-# PHƯƠNG PHÁP CẢI TIẾN: MDM-IDS v1.1 (OPTIMIZED DENSITY MATRIX & DISSIPATION)
+# MÔ HÌNH MDM-IDS v2.0: TỐI ƯU HÓA KHÔNG GIAN BẬC 2 (DUAL-CORE PAIR)
 # ==============================================================================
-class MDM_IDSEngineV1_1:
+class MDM_IDS_Bac2_Engine:
     def __init__(self, dim=80):
         self.D = dim
 
-    def build_hamiltonian(self, X):
-        """Dựng toán tử Hamilton H chứa năng lượng Collatz & Wavelet"""
+    def build_duality_hamiltonian(self, X):
+        """1. TRIẾT HỌC ÂM DƯƠNG & MA TRẬN HAMILTON (Động - Tĩnh)"""
         T, D = X.shape
         freqs = X.sum(axis=0).astype(float)
         
-        # 1. Năng lượng tự do Collatz 2-adic trên đường chéo
-        H_diag = np.zeros(D)
+        # Năng lượng Tĩnh (Âm): Độ giãn cách nhịp chưa nổ (Nhiệt độ ngầm)
+        # Năng lượng Động (Dương): Tần suất tích tụ gần nhất (Mật độ)
+        static_energy = np.zeros(D)
         for d in range(D):
-            v = int(freqs[d])
-            if v > 0:
-                collatz_v = 3 * v + 1
-                tz = (collatz_v & -collatz_v).bit_length() - 1
-                H_diag[d] = tz * 1.618 + np.log2(v + 1)
+            # Tính kỳ gần nhất xuất hiện
+            last_seen = np.where(X[:, d] == 1)[0]
+            if len(last_seen) > 0:
+                gap = (T - 1) - last_seen[-1]
             else:
-                H_diag[d] = 0.5 # Mức năng lượng chấn động nền cho số chưa xuất hiện
-                
-        # 2. Tương tác vành đồng dư Modulo Z/8Z trên các phần tử ngoài đường chéo
-        H_interaction = np.zeros((D, D))
+                gap = T
+            # Cân bằng Triết học: Nhịp nén vừa đủ (Gap từ 1 đến 3 kỳ) có năng lượng tích tụ cao nhất
+            static_energy[d] = np.exp(-((gap - 2.0)**2) / 2.5) * 2.0 + 0.1
+            
+        # Ma trận tương tác Rối Lượng tử & Topo (Phase Entanglement)
+        H_entangle = np.zeros((D, D))
         for i in range(D):
             for j in range(i + 1, D):
-                if (i + 1) % 8 == (j + 1) % 8:
-                    H_interaction[i, j] = 0.25
-                    H_interaction[j, i] = 0.25
-                    
-        H = np.diag(H_diag) + H_interaction
-        return H
-
-    def build_density_matrix(self, X):
-        """Dựng ma trận mật độ tương quan không gian rho"""
-        T, D = X.shape
-        rho = np.zeros((D, D))
-        for t in range(T):
-            v = X[t].reshape(-1, 1)
-            rho += np.dot(v, v.T)
-        rho /= T
-        return rho
-
-    def svd_denoise(self, matrix, keep_ratio=0.25):
-        """Lọc nhiễu trắng ngẫu nhiên bằng phân rã SVD"""
-        U, S, Vt = np.linalg.svd(matrix)
-        k = max(1, int(len(S) * keep_ratio))
-        S_filtered = np.zeros_like(S)
-        S_filtered[:k] = S[:k]
-        return np.dot(U, np.dot(np.diag(S_filtered), Vt))
-
-    def process(self, X):
-        T, D = X.shape
-        
-        # 1. Dựng toán tử Hamilton H và Ma trận Mật độ Rho
-        H = self.build_hamiltonian(X)
-        rho_raw = self.build_density_matrix(X)
-        
-        # 2. Tối ưu hóa SVD Lọc nhiễu
-        rho = self.svd_denoise(rho_raw, keep_ratio=0.25)
-        
-        # 3. Tiến hóa Von Neumann: [H, rho] = H*rho - rho*H
-        comm = np.dot(H, rho) - np.dot(rho, H)
-        evolution_energy = np.abs(np.diag(comm)) + np.diag(rho)
-        
-        # 4. BỘ TIÊU TÁN ENTROPY NÂNG CAO (SIẾT CHẶT LOẠI BỎ BẪY MẬT ĐỘ)
-        freqs = X.sum(axis=0)
-        for d in range(D):
-            # A. Phạt nặng số xuất hiện quá dày (Mật độ >= 3 lần trong 5 kỳ - như số 20)
-            if freqs[d] >= 3:
-                evolution_energy[d] *= 0.01
-
-            # B. Phạt bão hòa nổ 2 kỳ liên tiếp gần nhất
-            if T >= 2 and X[-1, d] == 1 and X[-2, d] == 1:
-                evolution_energy[d] *= 0.02
-
-            # C. Phạt số nổ cách 1 kỳ (như số 73 xuất hiện kỳ 3 và kỳ 5)
-            if T >= 3 and X[-1, d] == 1 and X[-3, d] == 1:
-                evolution_energy[d] *= 0.05
-
-            # D. Phạt bẫy gan tuyệt đối (0 lần xuất hiện trong tập cửa sổ)
-            if freqs[d] == 0:
-                evolution_energy[d] *= 0.15
-
-        # 5. TRÍCH XUẤT NÚT NĂNG LƯỢNG ĐỘC LẬP KHÔNG GIAN TRIỆT ĐỂ
-        sorted_indices = np.argsort(evolution_energy)[::-1]
-        
-        # N1: Nút năng lượng tiến hóa cực đại đạt chuẩn
-        best_n1 = sorted_indices[0]
-        
-        # N2: Nút có tương quan không gian độc lập nhất với N1
-        best_n2 = sorted_indices[1]
-        for idx in sorted_indices[1:]:
-            if rho[best_n1, idx] < np.percentile(rho[best_n1], 40): # Siết ngưỡng độc lập < 40%
-                best_n2 = idx
-                break
+                # Tương tácModulo 10 (Hàng đơn vị) & Modulo 8 (Tính đối xứng)
+                mod10_match = ((i + 1) % 10 == (j + 1) % 10)
+                mod8_match = ((i + 1) % 8 == (j + 1) % 8)
                 
-        # N3: Nút cân bằng entropy có tương quan thấp với cả N1 và N2
-        best_n3 = sorted_indices[2]
-        for idx in sorted_indices[2:]:
-            if idx != best_n1 and idx != best_n2:
-                cond1 = rho[best_n1, idx] < np.percentile(rho[best_n1], 40)
-                cond2 = rho[best_n2, idx] < np.percentile(rho[best_n2], 40)
-                if cond1 and cond2:
-                    best_n3 = idx
-                    break
+                # Khoảng cách Topo trên vành 80 số
+                topo_dist = abs((i + 1) - (j + 1))
+                
+                weight = 0.0
+                if mod10_match: weight += 0.35
+                if mod8_match: weight += 0.25
+                if 10 <= topo_dist <= 25: weight += 0.20 # Vùng khoảng cách vàng không gian
+                
+                H_entangle[i, j] = weight
+                H_entangle[j, i] = weight
+                
+        H = np.diag(static_energy) + H_entangle
+        return H, static_energy
 
-        N1 = best_n1 + 1
-        N2 = best_n2 + 1
-        N3 = best_n3 + 1
+    def build_cooccurrence_matrix(self, X):
+        """2. MA TRẬN MẬT ĐỘ TƯƠNG QUAN ĐỒNG THỜI (Co-occurrence Density)"""
+        T, D = X.shape
+        co_matrix = np.zeros((D, D))
+        for t in range(T):
+            row = X[t]
+            indices = np.where(row == 1)[0]
+            for i in indices:
+                for j in indices:
+                    if i != j:
+                        co_matrix[i, j] += 1.0
+        return co_matrix / T
 
-        bo_bac_2 = tuple(sorted([N1, N2]))
-        bo_bac_3 = tuple(sorted([N1, N2, N3]))
+    def process_bac2(self, X):
+        T, D = X.shape
+        freqs = X.sum(axis=0)
+        
+        # 1. Dựng Toán tử Hamilton Âm-Dương & Ma trận Tương quan Đồng thời
+        H, static_energy = self.build_duality_hamiltonian(X)
+        rho_co = self.build_cooccurrence_matrix(X)
+        
+        # 2. Phân rã SVD lọc nhiễu không gian ma trận tương quan Bậc 2
+        U, S, Vt = np.linalg.svd(rho_co)
+        S_filtered = np.zeros_like(S)
+        # Giữ lại 30% thành phần tần số liên kết cao nhất
+        k = max(1, int(len(S) * 0.30)) 
+        S_filtered[:k] = S[:k]
+        rho_filtered = np.dot(U, np.dot(np.diag(S_filtered), Vt))
 
-        return bo_bac_2, bo_bac_3, N1, N2, N3, evolution_energy
+        # 3. CHẤM ĐIỂM TẤT CẢ CÁC CẶP BẬC 2 (C3200 cặp trong 80 số)
+        pair_scores = {}
+        
+        for i in range(D):
+            for j in range(i + 1, D):
+                # Tiêu chí A: Độ rối lượng tử từ ma trận Hamilton
+                h_coupling = H[i, j]
+                
+                # Tiêu chí B: Điểm tương quan không gian đã lọc SVD
+                co_score = rho_filtered[i, j]
+                
+                # Tiêu chí C: Cân bằng Âm Dương (Một nút nén + Một nút nhịp giao thoa)
+                balance_score = static_energy[i] + static_energy[j]
+                
+                # Tổng điểm Bậc 2
+                score = (co_score * 4.0) + (h_coupling * 2.5) + (balance_score * 1.5)
+                
+                # PHẠT BẮC BẪY MẬT ĐỘ (BẢO VỆ CẶP BẬC 2)
+                # Phạt nếu cả 2 số đều đã xuất hiện >= 3 lần (bão hòa)
+                if freqs[i] >= 3 and freqs[j] >= 3:
+                    score *= 0.05
+                # Phạt nếu cả 2 số chưa từng xuất hiện (gan cấm)
+                if freqs[i] == 0 and freqs[j] == 0:
+                    score *= 0.10
+                # Phạt cặp vừa cùng về ở kỳ gần nhất
+                if X[-1, i] == 1 and X[-1, j] == 1:
+                    score *= 0.02
+                    
+                pair_scores[(i + 1, j + 1)] = score
+                
+        # Sắp xếp danh sách các cặp Bậc 2 tốt nhất
+        sorted_pairs = sorted(pair_scores.items(), key=lambda x: x[1], reverse=True)
+        
+        # Cặp Bậc 2 Tối ưu nhất (Top 1)
+        best_pair = sorted_pairs[0][0]
+        best_score = sorted_pairs[0][1]
+        
+        # 3 Cặp Bậc 2 Dự phòng tốt nhất
+        top_backup_pairs = [sorted_pairs[i][0] for i in range(1, 4)]
+        
+        return best_pair, best_score, top_backup_pairs, sorted_pairs
 
 # ==============================================================================
-# STREAMLIT UI
+# STREAMLIT UI - CHUYÊN BIỆT PHÂN TÍCH BẬC 2
 # ==============================================================================
-st.title("🌌 MDM-IDS Quantum-Classical Engine v1.1")
-st.caption("Phương pháp tối ưu: Tiêu tán Mật độ Đa kỳ • Lọc SVD • Khai thác Nút Độc lập Không gian")
+st.title("🎯 MDM-IDS v2.0: CHUYÊN PHÂN TÍCH BẬC 2")
+st.caption("Ứng dụng Toán tử Hamilton Âm-Dương • Lọc Rối Lượng Tử SVD • Không Gian Betti Bậc 2")
 
 raw_input = st.text_area(
     "Dán dữ liệu 5 đến 10 kỳ Keno vào đây:",
-    placeholder="Kỳ 1: 01 05 12 ...\nKỳ 2: ...",
+    placeholder="Kỳ 1: 01 03 06 ...\nKỳ 2: ...",
     height=180
 )
 
@@ -148,43 +149,44 @@ if raw_input.strip():
             for num in used_numbers[k * 20 : (k + 1) * 20]:
                 matrix[k, num - 1] = 1.0
                 
-        engine = MDM_IDSEngineV1_1()
-        bo2, bo3, n1, n2, n3, energy_spectrum = engine.process(matrix)
+        engine = MDM_IDS_Bac2_Engine()
+        best_pair, best_score, backup_pairs, all_sorted = engine.process_bac2(matrix)
         
-        st.success(f"⚡ Đã xử lý {kies_to_use} kỳ bằng thuật toán MDM-IDS v1.1 tối ưu!")
+        st.success(f"⚡ Đã quét toàn bộ 3,160 cặp Bậc 2 trên tập dữ liệu {kies_to_use} kỳ!")
         
         st.markdown("---")
-        st.subheader("🎯 TỔNG HỢP BỘ SỐ CHỐT NĂNG LƯỢNG MỚI")
+        st.subheader("🔥 BỘ BẬC 2 TỐI ƯU NHẤT (CHỐT)")
+        
+        col_pair1, col_pair2 = st.columns(2)
+        with col_pair1:
+            st.metric("SỐ THỨ NHẤT (N1)", f"{best_pair[0]:02d}")
+        with col_pair2:
+            st.metric("SỐ THỨ HAI (N2)", f"{best_pair[1]:02d}")
+            
+        st.markdown(f"<h1 style='text-align: center; color: #FF4B4B;'>CẶP BẬC 2: {best_pair[0]:02d} — {best_pair[1]:02d}</h1>", unsafe_allow_dict=True)
+        st.caption(f"Trạng thái năng lượng rối không gian: {best_score:.4f}")
+
+        st.markdown("---")
+        st.subheader("🛡️ TOP 3 CẶP BẬC 2 DỰ PHÒNG (DƯƠNG BẢN BẤT ĐOẠN)")
         
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.metric("HAMILTON CORE (N1)", f"{n1:02d}")
+            st.info(f"Cặp Phụ 1:\n### **{backup_pairs[0][0]:02d} — {backup_pairs[0][1]:02d}**")
         with c2:
-            st.metric("DECOHERENCE BALANCER (N2)", f"{n2:02d}")
+            st.info(f"Cặp Phụ 2:\n### **{backup_pairs[1][0]:02d} — {backup_pairs[1][1]:02d}**")
         with c3:
-            st.metric("SPATIAL ATTRACTOR (N3)", f"{n3:02d}")
-            
-        col2, col3 = st.columns(2)
-        with col2:
-            st.subheader("BỘ BẬC 2 CHỐT")
-            st.title(f"{bo2[0]:02d} — {bo2[1]:02d}")
-        with col3:
-            st.subheader("BỘ BẬC 3 CHỐT")
-            st.title(f"{bo3[0]:02d} — {bo3[1]:02d} — {bo3[2]:02d}")
-            
+            st.info(f"Cặp Phụ 3:\n### **{backup_pairs[2][0]:02d} — {backup_pairs[2][1]:02d}**")
+
         st.markdown("---")
-        st.subheader("📊 Mức Năng Lượng Tiến Hóa Sau Khi Triệt Tiêu Nhiễu Bão Hòa")
-        df_res = pd.DataFrame({
-            "Con số": [f"Số {n1:02d} (N1)", f"Số {n2:02d} (N2)", f"Số {n3:02d} (N3)"],
-            "Điểm Năng Lượng Chốt": [
-                f"{energy_spectrum[n1-1]:.5f}", 
-                f"{energy_spectrum[n2-1]:.5f}", 
-                f"{energy_spectrum[n3-1]:.5f}"
-            ]
+        st.subheader("📋 BẢNG XẾP HẠNG TOP 10 CẶP BẬC 2 NĂNG LƯỢNG CAO NHẤT")
+        
+        df_top = pd.DataFrame({
+            "Hạng": [f"Top {i+1}" for i in range(10)],
+            "Cặp Số Bậc 2": [f"({all_sorted[i][0][0]:02d}, {all_sorted[i][0][1]:02d})" for i in range(10)],
+            "Điểm Tương Quan Không Gian": [f"{all_sorted[i][1]:.5f}" for i in range(10)]
         })
-        st.table(df_res)
+        st.table(df_top)
     else:
-        msg_err = "Cần tối thiểu 5 kỳ dữ liệu (100 số). Hiện tại đọc được " + str(total_kies) + " kỳ."
-        st.warning(msg_err)
+        st.warning(f"Cần tối thiểu 5 kỳ dữ liệu (100 số). Hiện tại hệ thống nhận diện được {total_kies} kỳ.")
 else:
-    st.info("Dán chuỗi 5–10 kỳ Keno vào khung văn bản phía trên để khởi chạy mô hình MDM-IDS v1.1.")
+    st.info("Dán chuỗi dữ liệu Keno vào khung trên để tiến hành phân tích chiều sâu Bậc 2.")
