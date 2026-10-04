@@ -3,135 +3,122 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="Move-37 Micro-Chunk Engine v3", layout="centered")
+st.set_page_config(page_title="MDM-IDS Quantum-Classical Engine", layout="centered")
 
 # ==============================================================================
-# 1. KERNEL SHANNON ENTROPY (MICRO-WINDOW DATA CHUNKING)
+# PHƯƠNG PHÁP MỚI: MULTILAYER DENSITY MATRIX & INFORMATION DYNAMICS (MDM-IDS)
 # ==============================================================================
-class MicroWindowEntropyKernel:
-    """Chia nhỏ dữ liệu thành các vi cửa sổ (k=3) và tính độ biến thiên Entropy"""
-    def analyze(self, X):
-        T, D = X.shape
-        if T < 3:
-            return np.ones(D) / D
-            
-        entropies = np.zeros(D)
-        # Quét trượt qua từng vi cửa sổ 3 kỳ
-        for t in range(T - 2):
-            window = X[t : t + 3] # Cửa sổ trượt 3 kỳ
-            p = window.sum(axis=0) / 3.0 # Xác suất xuất hiện vi mô
-            for d in range(D):
-                prob = p[d]
-                if 0 < prob < 1:
-                    # Shannon Entropy: H(X) = -p*log2(p) - (1-p)*log2(1-p)
-                    entropies[d] += -prob * np.log2(prob) - (1 - prob) * np.log2(1 - prob)
-                    
-        max_e = np.max(entropies)
-        return entropies / max_e if max_e > 0 else entropies
+class MDM_IDSEngine:
+    def __init__(self, dim=80):
+        self.D = dim
 
-# ==============================================================================
-# 2. KERNEL COLLATZ-MARKOV TRANSITION (MA TRẬN CHUYỂN TRẠNG THÁI)
-# ==============================================================================
-class CollatzMarkovKernel:
-    """Mã hóa tần suất theo Collatz 3n+1 và dựng ma trận chuyển Markov"""
-    def analyze(self, X):
+    def build_hamiltonian(self, X):
+        """Dựng toán tử Hamilton H chứa năng lượng Collatz & Wavelet"""
         T, D = X.shape
-        freqs = X.sum(axis=0).astype(int)
-        scores = np.zeros(D)
+        freqs = X.sum(axis=0).astype(float)
         
-        # Ma trận chuyển trạng thái Markov 2x2 cho từng con số
+        # 1. Năng lượng tự do Collatz 2-adic trên đường chéo
+        H_diag = np.zeros(D)
         for d in range(D):
-            # Tính toán xích Markov từ chuỗi xuất hiện (0/1)
-            history = X[:, d]
-            transitions = np.zeros((2, 2))
-            for i in range(len(history) - 1):
-                from_state = int(history[i])
-                to_state = int(history[i+1])
-                transitions[from_state, to_state] += 1
+            v = int(freqs[d])
+            if v > 0:
+                collatz_v = 3 * v + 1
+                tz = (collatz_v & -collatz_v).bit_length() - 1
+                H_diag[d] = tz * 1.618 + np.log2(v + 1)
+            else:
+                H_diag[d] = 0.5 # Mức năng lượng chấn động nền cho số chưa xuất hiện
                 
-            # Chuẩn hóa xác suất chuyển
-            row_sums = transitions.sum(axis=1, keepdims=True)
-            row_sums[row_sums == 0] = 1.0
-            prob_matrix = transitions / row_sums
-            
-            # Khai thác điểm rơi Collatz kết hợp xác suất chuyển 0 -> 1
-            v = freqs[d]
-            collatz_factor = (3 * v + 1) % 8
-            move37_score = prob_matrix[int(history[-1]), 1] * (collatz_factor + 1)
-            scores[d] = move37_score
-            
-        max_s = np.max(scores)
-        return scores / max_s if max_s > 0 else scores
+        # 2. Tương tác vành đồng dư Modulo Z/8Z trên các phần tử ngoài đường chéo
+        H_interaction = np.zeros((D, D))
+        for i in range(D):
+            for j in range(i + 1, D):
+                if (i + 1) % 8 == (j + 1) % 8:
+                    H_interaction[i, j] = 0.25
+                    H_interaction[j, i] = 0.25
+                    
+        H = np.diag(H_diag) + H_interaction
+        return H
 
-# ==============================================================================
-# 3. KERNEL WAVELET SINGULARITY (ĐIỂM ĐỨT GÃY SÓNG)
-# ==============================================================================
-class WaveletSingularityKernel:
-    """Bắt các điểm đứt gãy phi tuyến tính trong chuỗi thời gian vi mô"""
-    def analyze(self, X):
+    def build_density_matrix(self, X):
+        """Dựng ma trận mật độ tương quan không gian rho"""
         T, D = X.shape
-        scores = np.zeros(D)
-        for d in range(D):
-            signal = X[:, d]
-            # Sử dụng đạo hàm bậc 2 để tìm điểm uốn (Inflection Points)
-            diff2 = np.diff(signal, n=2) if len(signal) >= 3 else np.array([0])
-            scores[d] = np.sum(np.abs(diff2)) + 1.0 / (np.std(signal) + 1.0)
-            
-        max_s = np.max(scores)
-        return scores / max_s if max_s > 0 else scores
+        rho = np.zeros((D, D))
+        for t in range(T):
+            v = X[t].reshape(-1, 1)
+            rho += np.dot(v, v.T)
+        rho /= T
+        return rho
 
-# ==============================================================================
-# MASTER ENGINE: MOVE-37 INTEGRATOR V3
-# ==============================================================================
-class Move37EngineV3:
-    def __init__(self):
-        self.k_entropy = MicroWindowEntropyKernel()
-        self.k_markov = CollatzMarkovKernel()
-        self.k_wavelet = WaveletSingularityKernel()
+    def svd_denoise(self, matrix, keep_ratio=0.3):
+        """Lọc nhiễu trắng ngẫu nhiên bằng phân rã SVD"""
+        U, S, Vt = np.linalg.svd(matrix)
+        k = max(1, int(len(S) * keep_ratio))
+        S_filtered = np.zeros_like(S)
+        S_filtered[:k] = S[:k]
+        return np.dot(U, np.dot(np.diag(S_filtered), Vt))
 
     def process(self, X):
         T, D = X.shape
         
-        # 1. Phân tích trên các tầng Kernel vi mô
-        s_entropy = self.k_entropy.analyze(X)
-        s_markov = self.k_markov.analyze(X)
-        s_wavelet = self.k_wavelet.analyze(X)
+        # Dựng H và Rho
+        H = self.build_hamiltonian(X)
+        rho_raw = self.build_density_matrix(X)
         
-        # 2. Tổng hợp Năng lượng Move 37 (Phi tuyến tính)
-        # Sử dụng Tích hình học (Geometric Mean) thay cho Cộng trọng số tuyến tính
-        # Tích hình học giúp lọc bỏ các số chỉ nhỉnh hơn ở 1 Kernel nhưng kém ở các Kernel khác
-        combined_energy = (s_entropy * s_markov * s_wavelet) ** (1.0 / 3.0)
+        # Tối ưu hóa SVD Lọc nhiễu
+        rho = self.svd_denoise(rho_raw, keep_ratio=0.25)
         
-        # 3. Lọc triệt tiêu kiệt sức & Bẫy bão hòa vi mô
+        # Tiến hóa Von Neumann: [H, rho] = H*rho - rho*H
+        comm = np.dot(H, rho) - np.dot(rho, H)
+        evolution_energy = np.abs(np.diag(comm)) + np.diag(rho)
+        
+        # Bộ tiêu tán Entropy (Dissipation Operator): Phạt số bão hòa & Bẫy gan
         freqs = X.sum(axis=0)
         for d in range(D):
-            # Nếu nổ 2 kỳ liên tiếp gần nhất -> Phạt nặng
+            # Phạt bão hòa (về 2 kỳ liên tiếp)
             if T >= 2 and X[-1, d] == 1 and X[-2, d] == 1:
-                combined_energy[d] *= 0.05
-            # Nếu là số Gan kéo dài (> 5 kỳ chưa về) -> Phạt bẫy gan
+                evolution_energy[d] *= 0.02
+            # Phạt số gan tuyệt đối (> 5 kỳ chưa về)
             if freqs[d] == 0:
-                combined_energy[d] *= 0.20
-
-        # 4. Trích xuất Bộ số Move 37 (Lựa chọn theo ngưỡng Bất định tối ưu)
-        sorted_indices = np.argsort(combined_energy)[::-1]
+                evolution_energy[d] *= 0.15
+                
+        # Trích xuất 3 Nút Năng Lượng Đa Tầng
+        sorted_indices = np.argsort(evolution_energy)[::-1]
         
-        N1 = sorted_indices[0] + 1 # Điểm nút Năng lượng Move 37 cao nhất
-        N2 = sorted_indices[1] + 1 # Điểm nút Giao thoa Markov
-        N3 = sorted_indices[2] + 1 # Điểm nút Cân bằng Entropy
+        # N1: Nút năng lượng tiến hóa cực đại
+        best_n1 = sorted_indices[0]
+        
+        # N2: Nút năng lượng cao thứ 2 có tương quan không gian nhỏ nhất với N1
+        best_n2 = sorted_indices[1]
+        for idx in sorted_indices[1:]:
+            if rho[best_n1, idx] < np.median(rho[best_n1]): # Chọn nút độc lập không gian
+                best_n2 = idx
+                break
+                
+        # N3: Nút cân bằng entropy
+        best_n3 = sorted_indices[2]
+        for idx in sorted_indices[2:]:
+            if idx != best_n1 and idx != best_n2:
+                if rho[best_n1, idx] < np.median(rho[best_n1]) and rho[best_n2, idx] < np.median(rho[best_n2]):
+                    best_n3 = idx
+                    break
+
+        N1 = best_n1 + 1
+        N2 = best_n2 + 1
+        N3 = best_n3 + 1
 
         bo_bac_2 = tuple(sorted([N1, N2]))
         bo_bac_3 = tuple(sorted([N1, N2, N3]))
 
-        return bo_bac_2, bo_bac_3, N1, N2, N3, (s_entropy, s_markov, s_wavelet), combined_energy
+        return bo_bac_2, bo_bac_3, N1, N2, N3, evolution_energy
 
 # ==============================================================================
 # STREAMLIT UI
 # ==============================================================================
-st.title("♟️ Move-37 Micro-Chunk Engine v3")
-st.caption("Khải phóng tư duy Move 37: Chia nhỏ Vi cửa sổ • Xích Markov Collatz • Entropy Phi tuyến")
+st.title("🌌 MDM-IDS Quantum-Classical Engine")
+st.caption("Phương pháp mới: Ma trận Mật độ Tương quan Không gian • Tiến hóa Von Neumann • Lọc Denoise SVD")
 
 raw_input = st.text_area(
-    "Dán dữ liệu từ 5 đến 10 kỳ Keno vào đây:",
+    "Dán dữ liệu 5 đến 10 kỳ Keno vào đây:",
     placeholder="Kỳ 1: 01 05 12 ...\nKỳ 2: ...",
     height=180
 )
@@ -150,21 +137,21 @@ if raw_input.strip():
             for num in used_numbers[k * 20 : (k + 1) * 20]:
                 matrix[k, num - 1] = 1.0
                 
-        engine = Move37EngineV3()
-        bo2, bo3, n1, n2, n3, sub_scores, combined = engine.process(matrix)
+        engine = MDM_IDSEngine()
+        bo2, bo3, n1, n2, n3, energy_spectrum = engine.process(matrix)
         
-        st.success(f"⚡ Đã xử lý {kies_to_use} kỳ bằng thuật toán Chia nhỏ Vi cửa sổ (Micro-Windowing)!")
+        st.success(f"⚡ Đã thực thi phương pháp MDM-IDS với thuật toán Lọc SVD trên {kies_to_use} kỳ!")
         
         st.markdown("---")
-        st.subheader("🎯 TỔNG HỢP BỘ SỐ BẤT ĐỊNH MOVE 37 (V3)")
+        st.subheader("🎯 TỔNG HỢP BỘ SỐ CHỐT MDM-IDS")
         
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.metric("MOVE 37 CORE (N1)", f"{n1:02d}")
+            st.metric("HAMILTON NODE (N1)", f"{n1:02d}")
         with c2:
-            st.metric("MARKOV NODE (N2)", f"{n2:02d}")
+            st.metric("DECOHERENCE BALANCER (N2)", f"{n2:02d}")
         with c3:
-            st.metric("ENTROPY BALANCER (N3)", f"{n3:02d}")
+            st.metric("SPATIAL ATTRACTOR (N3)", f"{n3:02d}")
             
         col2, col3 = st.columns(2)
         with col2:
@@ -175,17 +162,18 @@ if raw_input.strip():
             st.title(f"{bo3[0]:02d} — {bo3[1]:02d} — {bo3[2]:02d}")
             
         st.markdown("---")
-        st.subheader("📊 Mức Năng Lượng Vi Mô 3 Tầng")
+        st.subheader("📊 Năng lượng Tiến hóa Lượng tử Cổ điển")
         df_res = pd.DataFrame({
-            "Con số": [f"Số {n1:02d}", f"Số {n2:02d}", f"Số {n3:02d}"],
-            "Shannon Entropy (Micro-Window)": [f"{sub_scores[0][n1-1]:.3f}", f"{sub_scores[0][n2-1]:.3f}", f"{sub_scores[0][n3-1]:.3f}"],
-            "Collatz-Markov State": [f"{sub_scores[1][n1-1]:.3f}", f"{sub_scores[1][n2-1]:.3f}", f"{sub_scores[1][n3-1]:.3f}"],
-            "Wavelet Singularity": [f"{sub_scores[2][n1-1]:.3f}", f"{sub_scores[2][n2-1]:.3f}", f"{sub_scores[2][n3-1]:.3f}"],
-            "Tích Năng Lượng Geometric Mean": [f"{combined[n1-1]:.3f}", f"{combined[n2-1]:.3f}", f"{combined[n3-1]:.3f}"]
+            "Con số": [f"Số {n1:02d} (N1)", f"Số {n2:02d} (N2)", f"Số {n3:02d} (N3)"],
+            "Điểm Năng lượng Tiến hóa (Von Neumann Energy)": [
+                f"{energy_spectrum[n1-1]:.4f}", 
+                f"{energy_spectrum[n2-1]:.4f}", 
+                f"{energy_spectrum[n3-1]:.4f}"
+            ]
         })
         st.table(df_res)
     else:
         msg_err = "Cần tối thiểu 5 kỳ dữ liệu (100 số). Hiện tại đọc được " + str(total_kies) + " kỳ."
         st.warning(msg_err)
 else:
-    st.info("Dán chuỗi 5–10 kỳ Keno vào khung văn bản phía trên để khởi chạy mô hình Move 37 v3.")
+    st.info("Dán chuỗi 5–10 kỳ Keno vào khung văn bản phía trên để khởi chạy mô hình MDM-IDS.")
