@@ -3,123 +3,132 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="MDM-IDS v7.0 Hardware Chipset Engine", layout="centered")
+st.set_page_config(page_title="MDM-IDS v8.0 Dual-Register Logic Engine", layout="centered")
 
 # ==============================================================================
-# MÔ HÌNH MDM-IDS v7.0: HARDWARE CHIPSET ARCHITECTURE & BITWISE ALIGNMENT
+# MÔ HÌNH MDM-IDS v8.0: DUAL-REGISTER LOGIC ARCHITECTURE (RE-ORDERED MATH)
 # ==============================================================================
-class MDM_IDS_Bac2_v7_Chipset:
+class MDM_IDS_Bac2_v8_DRLA:
     def __init__(self, dim=80):
         self.D = dim
 
-    def detect_cache_flush(self, X):
-        """1. KHỐI PHÁT HIỆN LÀM MỚI BỘ NHỚ ĐỆM (Cache Reset Detection)"""
+    def layer1_rmt_filter(self, X):
+        """TẦNG 1: LỌC PHÂN RÃ KHÔNG GIAN CON RMT (Marchenko-Pastur)"""
         T, D = X.shape
-        if T < 2:
-            return False, 1.0
+        rho_raw = np.dot(X.T, X) / float(T)
         
-        # Tính khoảng cách Hamming giữa kỳ gần nhất T-1 và kỳ T-2
-        last_state = X[-1, :]
-        prev_state = X[-2, :]
-        hamming_dist = np.sum(last_state != prev_state)
+        # Ngưỡng Marchenko-Pastur
+        q = D / float(T) if T > 0 else 1.0
+        lambda_max = (1.0 + np.sqrt(q)) ** 2
         
-        # Nếu khoảng cách Hamming biến động cực đại (> 28/80 bit đổi trạng thái), hệ thống vừa Reset Cache
-        is_flushed = hamming_dist > 28
-        reset_weight = 0.35 if is_flushed else 1.0
-        return is_flushed, reset_weight
+        # Phân rã trị riêng
+        eigs, vecs = np.linalg.eigh(rho_raw)
+        # Triệt tiêu toàn bộ trị riêng dưới ngưỡng RMT
+        eigs_clean = np.where(eigs > lambda_max, eigs, 0.0)
+        
+        rho_clean = np.dot(vecs, np.dot(np.diag(eigs_clean), vecs.T))
+        return rho_clean
 
-    def compute_bitwise_logic_gates(self, X):
-        """2. KHỐI CỔNG LOGIC XOR / AND / SHIFT TÍCH HỢP (ALU Simulation)"""
+    def layer2_kuramoto_phase_lock(self, X):
+        """TẦNG 2: PHƯƠNG TRÌNH KHÓA PHA KURAMOTO DẠNG SỐ SỰ KIỆN"""
+        T, D = X.shape
+        phases = np.zeros(D)
+        
+        for d in range(D):
+            active_cycles = np.where(X[:, d] == 1)[0]
+            if len(active_cycles) > 0:
+                # Tính véc-tơ pha trung bình trên vòng tròn lượng giác
+                angle_sum = np.sum(np.exp(1j * (2 * np.pi * active_cycles / float(T))))
+                phases[d] = np.angle(angle_sum)
+            else:
+                phases[d] = np.pi
+                
+        return phases
+
+    def layer3_ecc_bitwise_logic(self, X):
+        """TẦNG 3: MA TRẬN SỬA LỖI HAMMING ECC TÍCH HỢP CỔNG LOGIC"""
         T, D = X.shape
         bit_matrix = X.astype(int)
         
-        # Phép toán XOR nối tiếp qua các kỳ xung nhịp (Clock Cycles)
-        xor_accum = np.zeros(D, dtype=int)
+        # Phép XOR dồn tích lũy trạng thái thanh ghi
+        xor_reg = np.zeros(D, dtype=int)
         for t in range(T):
-            xor_accum = np.bitwise_xor(xor_accum, bit_matrix[t, :])
+            xor_reg = np.bitwise_xor(xor_reg, bit_matrix[t, :])
             
-        # Ma trận tương tác cổng AND song song (Parallel Bus Lines)
-        and_bus = np.dot(bit_matrix.T, bit_matrix)
-        
-        return xor_accum, and_bus
-
-    def compute_hamming_ecc_pairs(self, X):
-        """3. KHỐI MÃ SỬA LỖI HAMMING (Hamming Parity Alignment)"""
-        T, D = X.shape
-        hamming_matrix = np.zeros((D, D))
-        
+        # Ma trận khoảng cách Hamming chuẩn hóa
+        hamming_mat = np.zeros((D, D))
         for i in range(D):
             for j in range(i + 1, D):
-                # Tính khoảng cách Hamming trên chuỗi thời gian của 2 bit
-                dist = np.sum(X[:, i] != X[:, j])
-                # Khoảng cách Hamming tối ưu cho cặp ECC (Error-Correcting)
-                hamming_matrix[i, j] = dist
-                hamming_matrix[j, i] = dist
+                h_dist = np.sum(bit_matrix[:, i] != bit_matrix[:, j])
+                # Hàm mật độ Gauss cho khoảng cách Hamming ECC tối ưu
+                ecc_val = np.exp(-((h_dist - (T * 0.38))**2) / (2.0 * 1.5))
+                hamming_mat[i, j] = ecc_val
+                hamming_mat[j, i] = ecc_val
                 
-        return hamming_matrix
+        return xor_reg, hamming_mat
 
-    def process_bac2_v7(self, X):
+    def process_bac2_v8(self, X):
         T, D = X.shape
         freqs = X.sum(axis=0)
         
-        # 1. Kiểm tra trạng thái Reset Cache Chipset
-        is_flushed, reset_weight = self.detect_cache_flush(X)
+        # 1. Chạy Tầng 1: RMT Space
+        rho_rmt = self.layer1_rmt_filter(X)
         
-        # 2. Xuất tín hiệu Cổng Logic ALU
-        xor_accum, and_bus = self.compute_bitwise_logic_gates(X)
+        # 2. Chạy Tầng 2: Kuramoto Phase Lock
+        phases = self.layer2_kuramoto_phase_lock(X)
         
-        # 3. Tính khoảng cách Parity Hamming
-        hamming_matrix = self.compute_hamming_ecc_pairs(X)
+        # 3. Chạy Tầng 3: Bitwise ECC & Logic Register
+        xor_reg, hamming_ecc = self.layer3_ecc_bitwise_logic(X)
         
-        # CHẤM ĐIỂM VI MẠCH CHO 3,160 CẶP BẬC 2
+        # 4. CHUỖI NHÂN TÍCH CHÉO PHƯƠNG TRÌNH (CASCADED MULTIPLICATIVE PIPELINE)
         pair_scores = {}
         for i in range(D):
             for j in range(i + 1, D):
-                # A. Điểm Bus dữ liệu Cổng AND
-                bus_score = and_bus[i, j] / float(T)
+                # Factor A: Tín hiệu RMT Sạch (>0)
+                f_rmt = max(0.0, rho_rmt[i, j])
                 
-                # B. Điểm trạng thái XOR Alignment (Cùng bật 1 hoặc cùng chờ)
-                xor_parity = 1.0 if xor_accum[i] == xor_accum[j] else 0.25
+                # Factor B: Khóa Pha Kuramoto (Khóa góc pha)
+                phase_diff = abs(phases[i] - phases[j])
+                f_phase = (np.cos(phase_diff) + 1.0) / 2.0  # Chuẩn hóa về [0, 1]
                 
-                # C. Tối ưu khoảng cách Hamming Parity (Cân bằng bít lỗi)
-                h_dist = hamming_matrix[i, j]
-                # Bít ECC lý tưởng khi khoảng cách Hamming nằm trong nhịp ngắt vi mạch
-                ecc_score = np.exp(-((h_dist - (T * 0.4))**2) / 2.0)
+                # Factor C: Hamming ECC Alignment
+                f_ecc = hamming_ecc[i, j]
                 
-                # Tổng điểm logic vi mạch
-                score = (bus_score * 4.5) + (xor_parity * 3.5) + (ecc_score * 3.0)
+                # Factor D: Trạng thái XOR Register Matching
+                f_xor = 1.0 if xor_reg[i] == xor_reg[j] else 0.3
                 
-                # Áp dụng trọng số Reset Cache nếu vi mạch vừa xả bộ nhớ đệm
-                score *= reset_weight
+                # NĂNG LƯỢNG TÍCH CHÉO DẠNG CHUYỂN PHA (Tụ hội đa tầng)
+                # Phép nhân đảm bảo nếu 1 yếu tố bằng 0, điểm cặp sẽ bị loại bỏ hoàn toàn
+                score = (f_rmt ** 1.5) * (f_phase ** 2.0) * (f_ecc ** 1.2) * f_xor
                 
-                # --- LỌC KHẮC PHỤC CHỆCH BÍT kiểm tra (TRIỆT TIÊU BẪY 1/2) ---
-                # Phạt bit đã bão hòa cổng xuất (>= 3 lần nổ trong cửa sổ)
-                if freqs[i] >= 3: score *= 0.01
-                if freqs[j] >= 3: score *= 0.01
+                # --- PHẠT TRIỆT TIÊU BẪY TRÚNG 1/2 ---
+                # Phạt thanh ghi bão hòa (xuất hiện >= 3 lần trong cửa sổ)
+                if freqs[i] >= 3: score *= 0.005
+                if freqs[j] >= 3: score *= 0.005
                 
-                # Phạt nghẽn mạch: CẢ HAI BÍT cùng vừa kích hoạt ở xung T-1
+                # Phạt nghẽn mạch (Cả 2 số cùng xuất hiện ở kỳ T-1)
                 if X[-1, i] == 1 and X[-1, j] == 1:
+                    score *= 0.0001
+                    
+                # Phạt trượt xung nhịp đối xứng (T-1 và T-3)
+                if T >= 3 and X[-1, i] == 1 and X[-3, j] == 1:
+                    score *= 0.001
+                if T >= 3 and X[-1, j] == 1 and X[-3, i] == 1:
                     score *= 0.001
                     
-                # Phạt lệch xung Clock (Bít này nổ T-1, Bít kia nổ T-3)
-                if T >= 3 and X[-1, i] == 1 and X[-3, j] == 1:
-                    score *= 0.01
-                if T >= 3 and X[-1, j] == 1 and X[-3, i] == 1:
-                    score *= 0.01
-                    
-                # Phạt 2 bít nằm ở 2 thanh ghi quá kề nhau nếu bị trùng luồng
-                if abs(i - j) == 1 and bus_score < 0.15:
-                    score *= 0.10
+                # Phạt số gan bão hòa âm
+                if freqs[i] == 0 and freqs[j] == 0:
+                    score *= 0.001
                     
                 pair_scores[(i + 1, j + 1)] = score
                 
-        # Sắp xếp các đường Bus Bậc 2 theo tín hiệu kích hoạt giảm dần
+        # Sắp xếp danh sách cặp Bậc 2
         sorted_pairs = sorted(pair_scores.items(), key=lambda x: x[1], reverse=True)
         
         best_pair = sorted_pairs[0][0]
         best_score = sorted_pairs[0][1]
         
-        # Khai thác 3 kênh Bus dự phòng độc lập
+        # Khai thác 3 cặp phụ hoàn toàn độc lập không gian thanh ghi
         backup_pairs = []
         for pair, sc in sorted_pairs[1:]:
             if pair[0] not in best_pair and pair[1] not in best_pair:
@@ -127,13 +136,13 @@ class MDM_IDS_Bac2_v7_Chipset:
             if len(backup_pairs) == 3:
                 break
                 
-        return best_pair, best_score, backup_pairs, sorted_pairs, is_flushed
+        return best_pair, best_score, backup_pairs, sorted_pairs
 
 # ==============================================================================
-# STREAMLIT UI - MDM-IDS v7.0
+# STREAMLIT UI - MDM-IDS v8.0
 # ==============================================================================
-st.title("💻 MDM-IDS v7.0: HARDWARE CHIPSET ENGINE")
-st.caption("Mô phỏng Vi mạch ALU • Tín hiệu Cổng Logic XOR/AND • Căn chỉnh Bít ECC & Cache Reset")
+st.title("🎛️ MDM-IDS v8.0: DUAL-REGISTER LOGIC ENGINE")
+st.caption("Tái Cấu Trúc Hệ Phương Trình Nhân Tích Chéo • Khóa Pha Kuramoto • Lọc Chuỗi RMT Cascade")
 
 raw_input = st.text_area(
     "Dán dữ liệu 5 đến 10 kỳ Keno mới nhất vào đây:",
@@ -155,52 +164,49 @@ if raw_input.strip():
             for num in used_numbers[k * 20 : (k + 1) * 20]:
                 matrix[k, num - 1] = 1.0
                 
-        engine = MDM_IDS_Bac2_v7_Chipset()
-        best_pair, best_score, backup_pairs, all_sorted, is_flushed = engine.process_bac2_v7(matrix)
+        engine = MDM_IDS_Bac2_v8_DRLA()
+        best_pair, best_score, backup_pairs, all_sorted = engine.process_bac2_v8(matrix)
         
-        if is_flushed:
-            st.warning("⚠️ PHÁT HIỆN TÍN HIỆU FLUSH CACHE (LÀM MỚI BỘ NHỚ ĐỆM): Hệ thống đã tự động chuyển sang chế độ phân tích nhịp ngắt vi mạch ngắn hạn.")
-        else:
-            st.success(f"⚡ Luồng Bus dữ liệu ổn định! Đã hoàn tất quét logic vi mạch v7.0 trên {kies_to_use} kỳ xung nhịp.")
-            
+        st.success(f"⚡ Đã hoàn tất xử lý Chuỗi Phương Trình Tích Chéo v8.0 trên {kies_to_use} kỳ dữ liệu!")
+        
         st.markdown("---")
-        st.subheader("🔥 LUỒNG BUS BẬC 2 ĐỢT KÍCH HOẠT ĐỒNG THỜI (CHỐT 2/2)")
+        st.subheader("🔥 CẶP BẬC 2 ĐỒNG BỘ THANH GHI DUAL-REGISTER (CHỐT 2/2)")
         
         c_n1, c_n2 = st.columns(2)
         with c_n1:
-            st.metric("BIT CỔNG XUẤT N1", f"{best_pair[0]:02d}")
+            st.metric("BIT KHÓA PHA N1", f"{best_pair[0]:02d}")
         with c_n2:
-            st.metric("BIT KÍCH HOẠT ECC N2", f"{best_pair[1]:02d}")
+            st.metric("BIT KHÓA PHA N2", f"{best_pair[1]:02d}")
             
         st.markdown(
-            f"<div style='text-align: center; padding: 18px; background-color: #03101F; border-radius: 12px; border: 2px solid #00E5FF; box-shadow: 0 0 15px rgba(0, 229, 255, 0.4);'>"
-            f"<h1 style='color: #00E5FF; margin:0; font-size: 2.8rem;'>CẶP BẬC 2: {best_pair[0]:02d} — {best_pair[1]:02d}</h1>"
-            f"<p style='color: #888; margin:5px 0 0 0;'>Chỉ số đồng bộ tín hiệu Chipset: {best_score:.6f}</p>"
+            f"<div style='text-align: center; padding: 18px; background-color: #08120C; border-radius: 12px; border: 2px solid #00FF66; box-shadow: 0 0 15px rgba(0, 255, 102, 0.4);'>"
+            f"<h1 style='color: #00FF66; margin:0; font-size: 2.8rem;'>CẶP BẬC 2: {best_pair[0]:02d} — {best_pair[1]:02d}</h1>"
+            f"<p style='color: #888; margin:5px 0 0 0;'>Cường độ hội tụ đa tầng v8.0: {best_score:.8f}</p>"
             f"</div>", 
             unsafe_allow_dict=True
         )
 
         st.markdown("<br>", unsafe_allow_dict=True)
-        st.subheader("🛡️ CÁC CẶP BẬC 2 KÊNH BUS DỰ PHÒNG CHUẨN PARITY")
+        st.subheader("🛡️ CÁC CẶP BẬC 2 DỰ PHÒNG CHUẨN THANH GHI")
         
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.info(f"Bus Phụ 1:\n### **{backup_pairs[0][0]:02d} — {backup_pairs[0][1]:02d}**")
+            st.info(f"Thanh Ghi Phụ 1:\n### **{backup_pairs[0][0]:02d} — {backup_pairs[0][1]:02d}**")
         with c2:
-            st.info(f"Bus Phụ 2:\n### **{backup_pairs[1][0]:02d} — {backup_pairs[1][1]:02d}**")
+            st.info(f"Thanh Ghi Phụ 2:\n### **{backup_pairs[1][0]:02d} — {backup_pairs[1][1]:02d}**")
         with c3:
-            st.info(f"Bus Phụ 3:\n### **{backup_pairs[2][0]:02d} — {backup_pairs[2][1]:02d}**")
+            st.info(f"Thanh Ghi Phụ 3:\n### **{backup_pairs[2][0]:02d} — {backup_pairs[2][1]:02d}**")
 
         st.markdown("---")
-        st.subheader("📊 BẢNG TÍN HIỆU BUS TOP 10 CẶP BẬC 2 ĐỒNG BỘ NĂNG LƯỢNG HIGH-BUS")
+        st.subheader("📊 BẢNG CHI TIẾT TOP 10 CẶP BẬC 2 ĐẠT ĐIỂM TÍCH CHÉO CỰC ĐẠI")
         
         df_top = pd.DataFrame({
             "Thứ hạng": [f"Top {i+1}" for i in range(10)],
-            "Cặp Bậc 2 (Bus Lines)": [f"({all_sorted[i][0][0]:02d}, {all_sorted[i][0][1]:02d})" for i in range(10)],
-            "Tín Hiệu Đồng Bộ Logic": [f"{all_sorted[i][1]:.6f}" for i in range(10)]
+            "Cặp Bậc 2 (Dual-Register)": [f"({all_sorted[i][0][0]:02d}, {all_sorted[i][0][1]:02d})" for i in range(10)],
+            "Điểm Tích Chéo v8.0": [f"{all_sorted[i][1]:.8f}" for i in range(10)]
         })
         st.table(df_top)
     else:
         st.warning(f"Cần tối thiểu 5 kỳ dữ liệu (100 số). Hệ thống hiện nhận diện được {total_kies} kỳ.")
 else:
-    st.info("Dán dữ liệu Keno vào khung trên để khởi chạy bộ lọc Chipset v7.0.")
+    st.info("Dán dữ liệu Keno vào khung trên để khởi chạy bộ lọc DRLA v8.0.")
