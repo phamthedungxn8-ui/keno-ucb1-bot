@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="MDM-IDS v14.0 Multi-Agent Ensemble Engine", layout="wide")
+st.set_page_config(page_title="MDM-IDS v14.1 Multi-Agent Ensemble Engine", layout="wide")
 
 # ==============================================================================
 # BỘ CÁC AGENT SUY LUẬN ĐỘC LẬP
@@ -20,7 +20,7 @@ class Agent1_ShannonTopo:
         for i in range(D):
             # Tính Self-Entropy và độ biến động tin tức
             entropy = - (p1[i] * np.log2(p1[i]) + p0[i] * np.log2(p0[i]))
-            # Điểm ưu tiên cho các số có Entropy cao (đang ở vùng ranh giới nổ)
+            # Điểm ưu tiên cho các số có Entropy cao
             scores[i] = entropy * (1.0 - abs(p1[i] - 0.25))
             
         return scores
@@ -62,7 +62,7 @@ class Agent3_PhaseShift:
         return scores
 
 # ==============================================================================
-# HỆ THỐNG TỔNG HỢP MULTI-AGENT & ĐIỀU PHỐI TỰ TỐI ƯU (CENTRAL CONTROLLER)
+# HỆ THỐNG TỔNG HỢP MULTI-AGENT & ĐIỀU PHỐI TỰ TỐI ƯU
 # ==============================================================================
 
 class MultiAgentKenoSystem:
@@ -85,7 +85,6 @@ class MultiAgentKenoSystem:
         s3 = (s3 - s3.min()) / (s3.max() - s3.min() + 1e-9)
         
         # 2. Lớp Hội tụ & Đồng thuận (Consensus Layer)
-        # Tích chéo điểm số của 3 Agent
         final_scores = (s1 ** 1.2) * (s2 ** 1.5) * (s3 ** 2.0)
         
         # Sắp xếp danh sách 80 nút số theo thứ tự tiềm năng giảm dần
@@ -113,7 +112,7 @@ class MultiAgentKenoSystem:
 # STREAMLIT UI - MULTI-AGENT SYSTEM
 # ==============================================================================
 
-st.title("🦅 MDM-IDS v14.0: MULTI-AGENT POSITIVE-EV ENGINE")
+st.title("🦅 MDM-IDS v14.1: MULTI-AGENT POSITIVE-EV ENGINE")
 st.caption("Chiến Thuật Tích Tụ Tiền Lẻ • Hệ Thống 3 Agent Song Song • Lọc Cuốn Chiếu 6-8 Kỳ • Tối Ưu Bậc 7, 8, 9")
 
 raw_input = st.text_area(
@@ -143,7 +142,7 @@ if raw_input.strip():
         
         st.markdown("---")
         
-        # HIỂN THỊ DÀN BẬC 8 CHỦ LỰC
+        # HIỂN THỊ DÀN BẬC 8 CHỦ LỰC (ĐÃ FIX LỖI THAM SỐ)
         st.subheader("🎯 DÀN CHỦ LỰC BẬC 8 (BẢO HIỂM TRÚNG 0 & TRÚNG 4/8 HOÀN TIỀN)")
         b8_str = "  •  ".join([f"**{n:02d}**" for n in res["bac8"]])
         st.markdown(
@@ -151,10 +150,10 @@ if raw_input.strip():
             f"<h2 style='color: #00F0FF; margin:0;'>{b8_str}</h2>"
             f"<p style='color: #AAA; margin:8px 0 0 0;'>Mục tiêu: Đạt giải Trúng 0, Trúng 4, Trúng 5 hoặc Trúng 6 để tích góp lợi nhuận</p>"
             f"</div>", 
-            unsafe_allow_dict=True
+            unsafe_allow_html=True
         )
         
-        st.markdown("<br>", unsafe_allow_dict=True)
+        st.markdown("<br>", unsafe_allow_html=True)
         col_a, col_b = st.columns(2)
         
         with col_a:
