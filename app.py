@@ -3,17 +3,21 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="MDM-IDS v16.5 Multi-Timeframe Architecture", layout="wide")
+st.set_page_config(
+    page_title="MDM-IDS v20.0 Hyper-Dimensional Engine", 
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 # ==============================================================================
-# LỚP 0: MULTI-TIMEFRAME DATA PIPELINE (10 - 30 KỲ)
+# LỚP 0: UNIFIED HYPER-TENSOR PIPELINE (MÔ HÌNH DỮ LIỆU ĐA TẦN SỐ)
 # ==============================================================================
-class MultiTimeframePipeline:
-    """Xử lý dữ liệu đầu vào 10-30 kỳ với cấu trúc ma trận đa tầng và suy giảm theo thời gian."""
+class HyperTensorPipeline:
+    """Quản lý, chuẩn hóa và phân tích Tensor dữ liệu 2D/3D đa khung thời gian (10-30 kỳ)."""
     def __init__(self, n_numbers=80):
         self.D = n_numbers
 
-    def parse_and_build_tensor(self, raw_text: str, min_kies=10, max_kies=30):
+    def build_tensor(self, raw_text: str, min_kies=10, max_kies=30):
         cleaned_data = re.sub(r'(?:Kì|Kỳ)\s*\d+[:\s]*', '\n', raw_text.strip(), flags=re.IGNORECASE)
         all_numbers = [int(n) for n in re.findall(r'\b\d{1,2}\b', cleaned_data) if 1 <= int(n) <= self.D]
         total_kies = len(all_numbers) // 20
@@ -33,35 +37,34 @@ class MultiTimeframePipeline:
 
 
 # ==============================================================================
-# LỚP 1: MULTI-WINDOW SIGNAL & ENTROPY LAYER
+# LỚP 1: CONTINUOUS ENTROPY & RIEMANN PHASE DYNAMICS
 # ==============================================================================
-class MultiWindowSignalLayer:
-    """Tính toán tín hiệu trên 3 cửa sổ: Ngắn (6), Trung (15), Dài (30)."""
+class RiemannPhaseEntropyLayer:
+    """Đo đạc Entropy, ma trận Covariance SVD và độ bù lệch pha nhị nguyên."""
     def process(self, X):
         T, D = X.shape
         
-        # Thiết lập các cửa sổ thời gian
-        w_short = min(6, T)
-        w_med = min(15, T)
-        w_long = T
+        # 1. Trọng số suy giảm mũ theo thời gian (Exponential Time-Decay)
+        decay_weights = np.exp(np.linspace(-1.2, 0, T))
+        decay_weights /= decay_weights.sum()
+        weighted_freqs = np.dot(decay_weights, X)
 
-        # Trọng số thời gian (Exponential Time-Decay)
-        weights = np.exp(np.linspace(-1.5, 0, T))
-        weights /= weights.sum()
+        # 2. Shannon Entropy trên từng nút số
+        p1 = np.mean(X == 1, axis=0) + 1e-9
+        p0 = np.mean(X == 0, axis=0) + 1e-9
+        entropy = -(p1 * np.log2(p1) + p0 * np.log2(p0))
 
-        # Tần suất có trọng số thời gian
-        weighted_freqs = np.dot(weights, X)
+        # 3. Ma trận vướng víu cặp (Co-occurrence Covariance) trên cửa sổ 15 kỳ gần nhất
+        X_med = X[-min(15, T):]
+        cov_matrix = np.corrcoef(X_med.T)
+        cov_matrix = np.nan_to_num(cov_matrix)
+        pair_density = np.sum(np.maximum(0, cov_matrix), axis=1) / float(D)
 
-        # Ma trận tương quan co-occurrence trong cửa sổ trung & dài
-        X_med = X[-w_med:]
-        cov_med = np.corrcoef(X_med.T)
-        cov_med = np.nan_to_num(cov_med)
-
-        # Duality Bias trên cửa sổ ngắn
+        # 4. Bù lệch pha Nhị nguyên (Duality Compensation)
         recent_k = X[-1]
         even_mask = np.array([1 if (i + 1) % 2 == 0 else 0 for i in range(D)])
         large_mask = np.array([1 if (i + 1) > 40 else 0 for i in range(D)])
-        
+
         even_ratio = np.sum(recent_k * even_mask) / 20.0
         large_ratio = np.sum(recent_k * large_mask) / 20.0
 
@@ -71,151 +74,222 @@ class MultiWindowSignalLayer:
             b_large = (1.0 - large_ratio) if large_mask[i] else large_ratio
             duality_bias[i] = 0.5 * (b_even + b_large)
 
-        return weighted_freqs, cov_med, duality_bias
+        return weighted_freqs, entropy, pair_density, duality_bias
 
 
 # ==============================================================================
-# LỚP 2: CONSENSUS & PAIR/TRIPLET DENSITY LAYER (ĐẶC THỤ BẬC 2 & BẬC 3)
+# LỚP 2: MULTI-AGENT QUANTUM NASH CONSENSUS ENGINE
 # ==============================================================================
-class PairDensityConsensusLayer:
-    """Tối ưu mật độ liên kết cặp cho Bậc 2 và bộ ba cho Bậc 3."""
-    def process(self, X, weighted_freqs, cov_matrix, duality_bias):
+class MultiAgentNashEngine:
+    """Hợp nhất các Agent suy luận độc lập theo nguyên lý Cân bằng Nash."""
+    def process(self, X, weighted_freqs, entropy, pair_density, duality_bias):
         T, D = X.shape
-        freqs_short = X[-6:].sum(axis=0) if T >= 6 else X.sum(axis=0)
+        freqs_short = X[-min(6, T):].sum(axis=0)
 
-        # Mật độ tương quan từ ma trận Covariance
-        pair_density = np.sum(np.maximum(0, cov_matrix), axis=1) / float(D)
+        # Agent 1: Xung lực ngắn (Micro-Impulse)
+        agent1_score = weighted_freqs
 
-        # Khối lọc pha bộc phát trên cửa sổ ngắn
-        phase_scores = np.ones(D)
+        # Agent 2: Ranh giới Pha bộc phát (Phase-Transition Boundary)
+        agent2_score = np.ones(D)
         for i in range(D):
             if freqs_short[i] in [1, 2]:
-                phase_scores[i] = 1.95  # Vùng ranh giới pha bộc phát cực cao
+                agent2_score[i] = 2.0  # Tối ưu điểm bùng nổ
             elif freqs_short[i] == 0:
-                phase_scores[i] = 0.35  # Phạt số đóng băng
+                agent2_score[i] = 0.30 # Phạt số đóng băng
             elif freqs_short[i] >= 4:
-                phase_scores[i] = 0.15  # Phạt số bão hòa
+                agent2_score[i] = 0.10 # Phạt số bão hòa
 
-        # Chuẩn hóa
-        norm_wf = (weighted_freqs - weighted_freqs.min()) / (weighted_freqs.max() - weighted_freqs.min() + 1e-9)
-        norm_pair = (pair_density - pair_density.min()) / (pair_density.max() - pair_density.min() + 1e-9)
+        # Agent 3: Mật độ vướng víu macro
+        agent3_score = pair_density * entropy
+
+        # Chuẩn hóa Min-Max các Agent
+        norm1 = (agent1_score - agent1_score.min()) / (agent1_score.max() - agent1_score.min() + 1e-9)
+        norm3 = (agent3_score - agent3_score.min()) / (agent3_score.max() - agent3_score.min() + 1e-9)
         norm_dual = (duality_bias - duality_bias.min()) / (duality_bias.max() - duality_bias.min() + 1e-9)
 
-        # Tổng hợp xung lực v16.5
-        scores = (norm_wf * 0.30 + norm_pair * 0.40 + norm_dual * 0.30) * phase_scores
-        return scores
+        # Tích chéo hội tụ (Nash Equilibrium Convergence)
+        consensus_vector = (norm1 ** 1.0) * (norm3 ** 1.4) * (norm_dual ** 1.2) * agent2_score
+        return consensus_vector
 
 
 # ==============================================================================
-# LỚP 3: ANTI-REPETITION & ROUTER FOR BAC 2 & BAC 3
+# LỚP 3: PHASE-INVERSION & REPETITION SUPPRESSION FILTER
 # ==============================================================================
-class Bac2Bac3RouterLayer:
-    """Lọc triệt tiêu lặp kỳ T-1 và xuất dàn Dual-Core cho Bậc 2 và Bậc 3."""
-    def route(self, X, scores):
+class SuppressionFilterLayer:
+    """Triệt tiêu hiện tượng kẹt bão hòa thanh ghi và lặp số tức thời T-1."""
+    def filter(self, X, consensus_vector):
         D = X.shape[1]
-        final_scores = scores.copy()
+        final_scores = consensus_vector.copy()
 
-        # Triệt tiêu lặp số ở kỳ T-1
+        # Phạt triệt tiêu lặp số ở kỳ T-1
         for i in range(D):
             if X[-1, i] == 1:
-                final_scores[i] *= 0.20
+                final_scores[i] *= 0.18 # Phạt mạnh số vừa ra ở kỳ trước
 
+        return final_scores
+
+
+# ==============================================================================
+# LỚP 4: UNIVERSAL MULTI-TIER COMBINATORIAL ROUTER
+# ==============================================================================
+class UniversalCombinatorialRouter:
+    """Tự động phân rã chỉ số năng lượng thành các bộ số tối ưu cho TẮT CẢ BẬC CHƠI."""
+    def route_all_tiers(self, final_scores):
+        D = len(final_scores)
         ranked_indices = np.argsort(final_scores)[::-1]
         ranked_numbers = [idx + 1 for idx in ranked_indices]
 
-        # Dàn Bậc 2
-        bac2_alpha = sorted([ranked_numbers[0], ranked_numbers[2]])
-        bac2_beta = sorted([ranked_numbers[1], ranked_numbers[3]])
-        bac2_backup = sorted([ranked_numbers[4], ranked_numbers[5]])
+        # 1. Cấu trúc Dual-Core Phân bổ Lực
+        alpha_core = [ranked_numbers[i] for i in range(0, 16, 2)] # Các nút vị trí lẻ (Top 1, 3, 5...)
+        beta_core = [ranked_numbers[i] for i in range(1, 16, 2)]  # Các nút vị trí chẵn (Top 2, 4, 6...)
 
-        # Dàn Bậc 3
-        bac3_alpha = sorted([ranked_numbers[0], ranked_numbers[2], ranked_numbers[4]])
-        bac3_beta = sorted([ranked_numbers[1], ranked_numbers[3], ranked_numbers[5]])
-        bac3_backup = sorted([ranked_numbers[6], ranked_numbers[7], ranked_numbers[8]])
+        # 2. Định tuyến cho Bậc Nhỏ (Bậc 2, Bậc 3, Bậc 4) - Yêu cầu độ chuẩn cặp
+        bac2_alpha = sorted(alpha_core[:2])
+        bac2_beta = sorted(beta_core[:2])
+        bac2_backup = sorted([ranked_numbers[16], ranked_numbers[17]])
+
+        bac3_alpha = sorted(alpha_core[:3])
+        bac3_beta = sorted(beta_core[:3])
+
+        bac4_alpha = sorted(alpha_core[:4])
+        bac4_beta = sorted(beta_core[:4])
+
+        # 3. Định tuyến cho Bậc Lớn (Bậc 7, Bậc 8, Bậc 9) - Yêu cầu bao phủ diện rộng & bảo hiểm
+        bac7_master = sorted(ranked_numbers[:7])
+        bac8_master = sorted(ranked_numbers[:8])
+        bac9_master = sorted(ranked_numbers[:9])
+        bac8_backup = sorted(ranked_numbers[8:16])
 
         return {
+            "ranked_all": ranked_numbers,
+            "scores": final_scores,
             "bac2_alpha": bac2_alpha,
             "bac2_beta": bac2_beta,
             "bac2_backup": bac2_backup,
             "bac3_alpha": bac3_alpha,
             "bac3_beta": bac3_beta,
-            "bac3_backup": bac3_backup,
-            "scores": final_scores,
-            "ranked_all": ranked_numbers
+            "bac4_alpha": bac4_alpha,
+            "bac4_beta": bac4_beta,
+            "bac7_master": bac7_master,
+            "bac8_master": bac8_master,
+            "bac9_master": bac9_master,
+            "bac8_backup": bac8_backup
         }
 
 
 # ==============================================================================
-# STREAMLIT UI
+# STREAMLIT UI SYSTEM (HD-PME v20.0)
 # ==============================================================================
-st.title("⚡ MDM-IDS v16.5: MULTI-TIMEFRAME PIPELINE (10–30 KỲ)")
-st.caption("Kiến Trúc Dữ Liệu Đa Tần Số • Exponential Time-Decay • Chuyên Biệt Bậc 2 & Bậc 3")
+st.title("🌌 MDM-IDS v20.0: HYPER-DIMENSIONAL ENGINE")
+st.caption("Siêu Cấu Trúc Dự Đoán Keno Đa Bậc • 5 Lớp Thuật Toán Độc Lập • Cân Bằng Nash & Phân Tầng Pha")
+
+with st.sidebar:
+    st.header("⚙️ Cấu Hình Siêu Hệ Thống")
+    min_window = st.slider("Cửa sổ tối thiểu (Kỳ):", 6, 15, 10)
+    max_window = st.slider("Cửa sổ tối đa (Kỳ):", 15, 50, 30)
+    st.info("Hệ thống tự động điều chỉnh ma trận trọng số Decay theo kích thước cửa sổ nhập vào.")
 
 raw_input = st.text_area(
-    "Dán dữ liệu cuốn chiếu (Nên nhập từ 10 đến 30 kỳ):",
+    "Dán dữ liệu cuốn chiếu Keno (Khuyên dùng từ 10 - 30 kỳ để đạt độ ổn định tối đa):",
     placeholder="Kỳ 1: 01 02 05 08 ...\nKỳ 2: ...\n...\nKỳ 20: ...",
-    height=200
+    height=180
 )
 
 if raw_input.strip():
-    pipeline = MultiTimeframePipeline()
-    matrix, total_kies = pipeline.parse_and_build_tensor(raw_input, min_kies=10, max_kies=30)
+    pipeline = HyperTensorPipeline()
+    matrix, total_kies = pipeline.build_tensor(raw_input, min_kies=min_window, max_kies=max_window)
 
     if matrix is not None:
-        # Lớp 1
-        l1 = MultiWindowSignalLayer()
-        w_freqs, cov_matrix, duality = l1.process(matrix)
+        # Thực thi 5 Lớp Pipeline
+        l1 = RiemannPhaseEntropyLayer()
+        w_freqs, entropy, pair_density, duality = l1.process(matrix)
 
-        # Lớp 2
-        l2 = PairDensityConsensusLayer()
-        raw_scores = l2.process(matrix, w_freqs, cov_matrix, duality)
+        l2 = MultiAgentNashEngine()
+        consensus = l2.process(matrix, w_freqs, entropy, pair_density, duality)
 
-        # Lớp 3
-        l3 = Bac2Bac3RouterLayer()
-        res = l3.route(matrix, raw_scores)
+        l3 = SuppressionFilterLayer()
+        final_scores = l3.filter(matrix, consensus)
 
-        st.success(f"⚡ Đã phân tích thành công ma trận đa thời gian gồm {total_kies} kỳ dữ liệu!")
+        l4 = UniversalCombinatorialRouter()
+        res = l4.route_all_tiers(final_scores)
+
+        st.success(f"⚡ Đã thực thi hoàn tất 5 Lớp Siêu Cấu Trúc HD-PME v20.0 trên {total_kies} kỳ dữ liệu!")
         st.markdown("---")
 
-        # HIỂN THỊ BẬC 2
-        st.subheader("🔥 MỤC TIÊU BẬC 2 (CHỌN 2 - ĂN 90.000 VNĐ)")
-        c2a, c2b, c2c = st.columns(3)
-        with c2a:
-            st.markdown(f"<div style='text-align:center; padding:12px; background:#0A192F; border-radius:8px; border:2px solid #00F0FF;'>"
-                        f"<span style='color:#00F0FF; font-weight:bold;'>BẬC 2 - ALPHA</span>"
-                        f"<h2 style='color:#FFF; margin:5px 0;'>{res['bac2_alpha'][0]:02d} — {res['bac2_alpha'][1]:02d}</h2></div>", unsafe_allow_html=True)
-        with c2b:
-            st.markdown(f"<div style='text-align:center; padding:12px; background:#1A0903; border-radius:8px; border:2px solid #FF5500;'>"
-                        f"<span style='color:#FF5500; font-weight:bold;'>BẬC 2 - BETA (BÙNG NỔ)</span>"
-                        f"<h2 style='color:#FFF; margin:5px 0;'>{res['bac2_beta'][0]:02d} — {res['bac2_beta'][1]:02d}</h2></div>", unsafe_allow_html=True)
-        with c2c:
-            st.markdown(f"<div style='text-align:center; padding:12px; background:#111; border-radius:8px; border:1px solid #555;'>"
-                        f"<span style='color:#AAA; font-weight:bold;'>BẬC 2 - DỰ PHÒNG</span>"
-                        f"<h2 style='color:#FFF; margin:5px 0;'>{res['bac2_backup'][0]:02d} — {res['bac2_backup'][1]:02d}</h2></div>", unsafe_allow_html=True)
+        # TẠO TABS CHO CÁC NHÓM BẬC CỤ THỂ
+        tab_small, tab_large, tab_analytics = st.tabs([
+            "🎯 NHÓM BẬC NHỎ (BẬC 2, 3, 4)", 
+            "🛡️ NHÓM BẬC LỚN (BẬC 7, 8, 9)", 
+            "📊 PHÂN TÍCH MA TRẬN NĂNG LƯỢNG"
+        ])
 
-        st.markdown("<br>", unsafe_allow_html=True)
+        # TAB 1: BẬC NHỎ
+        with tab_small:
+            st.subheader("🔥 BẬC 2 (TỐI ƯU DÀN CẶP - THƯỞNG 90.000 VNĐ)")
+            c2a, c2b, c2c = st.columns(3)
+            with c2a:
+                st.markdown(f"<div style='text-align:center; padding:15px; background:#0A192F; border-radius:10px; border:2px solid #00F0FF;'>"
+                            f"<span style='color:#00F0FF; font-weight:bold;'>BẬC 2 - ALPHA</span>"
+                            f"<h2 style='color:#FFF; margin:5px 0;'>{res['bac2_alpha'][0]:02d} — {res['bac2_alpha'][1]:02d}</h2>"
+                            f"<p style='color:#AAA; margin:0; font-size:0.8rem;'>Dàn Tích Lũy Pha</p></div>", unsafe_allow_html=True)
+            with c2b:
+                st.markdown(f"<div style='text-align:center; padding:15px; background:#1A0903; border-radius:10px; border:2px solid #FF5500;'>"
+                            f"<span style='color:#FF5500; font-weight:bold;'>BẬC 2 - BETA (BÙNG NỔ)</span>"
+                            f"<h2 style='color:#FFF; margin:5px 0;'>{res['bac2_beta'][0]:02d} — {res['bac2_beta'][1]:02d}</h2>"
+                            f"<p style='color:#AAA; margin:0; font-size:0.8rem;'>Dàn Phụ Bộc Phát</p></div>", unsafe_allow_html=True)
+            with c2c:
+                st.markdown(f"<div style='text-align:center; padding:15px; background:#111; border-radius:10px; border:1px solid #555;'>"
+                            f"<span style='color:#AAA; font-weight:bold;'>BẬC 2 - DỰ PHÒNG</span>"
+                            f"<h2 style='color:#FFF; margin:5px 0;'>{res['bac2_backup'][0]:02d} — {res['bac2_backup'][1]:02d}</h2>"
+                            f"<p style='color:#AAA; margin:0; font-size:0.8rem;'>Bọc Lót Pha 3</p></div>", unsafe_allow_html=True)
 
-        # HIỂN THỊ BẬC 3
-        st.subheader("⚡ MỤC TIÊU BẬC 3 (CHỌN 3 - THƯỞNG 200.000 VNĐ / HOÀN VỐN 20.000 VNĐ)")
-        c3a, c3b, c3c = st.columns(3)
-        with c3a:
-            st.info(f"Dàn Alpha:\n### **{' - '.join([f'{n:02d}' for n in res['bac3_alpha']])}**")
-        with c3b:
-            st.warning(f"Dàn Beta (Bộc phát):\n### **{' - '.join([f'{n:02d}' for n in res['bac3_beta']])}**")
-        with c3c:
-            st.write(f"Dàn Dự phòng:\n### **{' - '.join([f'{n:02d}' for n in res['bac3_backup']])}**")
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.subheader("⚡ BẬC 3 VÀ BẬC 4 (ĐẶC THÙ ĂN TIỀN LẺ & HOÀN VỐN)")
+            col3, col4 = st.columns(2)
+            with col3:
+                st.info(f"**BẬC 3 ALPHA:** {' - '.join([f'{n:02d}' for n in res['bac3_alpha']])}\n\n"
+                        f"**BẬC 3 BETA:** {' - '.join([f'{n:02d}' for n in res['bac3_beta']])}")
+            with col4:
+                st.warning(f"**BẬC 4 ALPHA:** {' - '.join([f'{n:02d}' for n in res['bac4_alpha']])}\n\n"
+                           f"**BẬC 4 BETA:** {' - '.join([f'{n:02d}' for n in res['bac4_beta']])}")
 
-        st.markdown("---")
-        st.subheader("📊 TOP 12 CON SỐ XUNG LỰC ĐA TẦN SỐ")
-        df_top = pd.DataFrame({
-            "Thứ hạng": [f"Top {i+1}" for i in range(12)],
-            "Con số": [f"Số {res['ranked_all'][i]:02d}" for i in range(12)],
-            "Cấu trúc Router": ["Alpha" if i % 2 == 0 else "Beta (Bộc phát)" for i in range(12)],
-            "Điểm Xung Lực v16.5": [f"{res['scores'][res['ranked_all'][i]-1]:.6f}" for i in range(12)]
-        })
-        st.table(df_top.T)
+        # TAB 2: BẬC LỚN
+        with tab_large:
+            st.subheader("🎯 DÀN CHỦ LỰC BẬC 8 (BẢO HIỂM HOÀN TIỀN TRÚNG 0 & TRÚNG 4/8)")
+            b8_str = "  •  ".join([f"**{n:02d}**" for n in res["bac8_master"]])
+            st.markdown(
+                f"<div style='text-align: center; padding: 20px; background-color: #0D1117; border-radius: 12px; border: 2px solid #7928CA; box-shadow: 0 0 20px rgba(121, 40, 202, 0.4);'>"
+                f"<h2 style='color: #FF0080; margin:0;'>{b8_str}</h2>"
+                f"<p style='color: #AAA; margin:8px 0 0 0;'>Tối ưu dải thưởng: Trúng 0, 4, 5, 6, 7, 8</p>"
+                f"</div>", 
+                unsafe_allow_html=True
+            )
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            col_l1, col_l2 = st.columns(2)
+            with col_l1:
+                st.subheader("🔥 DÀN BẬC 7")
+                st.info(f"### **{' - '.join([f'{n:02d}' for n in res['bac7_master']])}**")
+            with col_l2:
+                st.subheader("🌟 DÀN BẬC 9")
+                st.success(f"### **{' - '.join([f'{n:02d}' for n in res['bac9_master']])}**")
+
+            st.markdown("---")
+            st.subheader("🛡️ DÀN BỌC LÓT BẬC 8 (BACKUP SET)")
+            st.warning(f"### **{' - '.join([f'{n:02d}' for n in res['bac8_backup']])}**")
+
+        # TAB 3: PHÂN TÍCH MA TRẬN
+        with tab_analytics:
+            st.subheader("📊 BẢNG TÍNH ĐIỂM XUNG LỰC HỘI TỰ XUẤT XUẤT TỪ 5 LỚP PIPELINE")
+            df_top = pd.DataFrame({
+                "Thứ hạng": [f"Top {i+1}" for i in range(20)],
+                "Con số": [f"Số {res['ranked_all'][i]:02d}" for i in range(20)],
+                "Cấu trúc Core": ["Alpha Core" if i % 2 == 0 else "Beta Core (Bộc phát)" for i in range(20)],
+                "Điểm Tín Hiệu HD-PME": [f"{res['scores'][res['ranked_all'][i]-1]:.6f}" for i in range(20)]
+            })
+            st.table(df_top)
 
     else:
-        st.warning(f"Cần tối thiểu 10 kỳ để phân tích đa tần số (Hiện có {total_kies} kỳ).")
+        st.warning(f"Cần tối thiểu {min_window} kỳ dữ liệu để khởi chạy siêu cấu trúc HD-PME (Hiện nhận diện được {total_kies} kỳ).")
 else:
-    st.info("Dán dữ liệu cuốn chiếu 10-30 kỳ Keno vào khung trên để khởi chạy mô hình v16.5.")
+    st.info("Dán dữ liệu cuốn chiếu 10-30 kỳ Keno vào khung trên để thực thi siêu cấu trúc v20.0.")
