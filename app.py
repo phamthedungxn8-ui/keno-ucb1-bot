@@ -3,20 +3,19 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(
-    page_title="MDM-IDS v21.0 Dynamic Resonance Engine", 
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="MDM-IDS v25.0 Sub-Network Interconnection Engine", layout="wide")
 
 # ==============================================================================
-# LỚP 0: UNIFIED HYPER-TENSOR PIPELINE (CHUẨN HÓA DỮ LIỆU ĐA TẦN SỐ)
+# LỚP 0: SUB-NETWORK TOPOLOGY PIPELINE (CHIA MẢNG & XÁC LẬP LIÊN KẾT)
 # ==============================================================================
-class HyperTensorPipeline:
-    def __init__(self, n_numbers=80):
+class SubNetworkTopologyPipeline:
+    """Phân rã không gian 80 số thành 8 cụm mảng nhỏ và xây dựng ma trận liên kết."""
+    def __init__(self, n_numbers=80, cluster_size=10):
         self.D = n_numbers
+        self.cluster_size = cluster_size
+        self.num_clusters = n_numbers // cluster_size # 8 cụm
 
-    def build_tensor(self, raw_text: str, min_kies=10, max_kies=30):
+    def build_clusters(self, raw_text: str, min_kies=8, max_kies=25):
         cleaned_data = re.sub(r'(?:Kì|Kỳ)\s*\d+[:\s]*', '\n', raw_text.strip(), flags=re.IGNORECASE)
         all_numbers = [int(n) for n in re.findall(r'\b\d{1,2}\b', cleaned_data) if 1 <= int(n) <= self.D]
         total_kies = len(all_numbers) // 20
@@ -34,215 +33,188 @@ class HyperTensorPipeline:
 
         return matrix, kies_to_use
 
-
-# ==============================================================================
-# LỚP 1: KALMAN FILTER & RIEMANN PHASE DYNAMICS (GIẢI QUYẾT THÁCH THỨC 1: KHÁNG NHIỄU)
-# ==============================================================================
-class AdaptiveKalmanPhaseLayer:
-    """Áp dụng Lọc Kalman Động để loại bỏ nhiễu trắng và tính toán độ lệch pha."""
-    def process(self, X):
+    def compute_inter_cluster_matrix(self, X):
         T, D = X.shape
-        
-        # 1. Bộ lọc Kalman đơn giản hóa loại bỏ nhiễu trắng
-        kalman_states = np.zeros(D)
-        p_cov = 1.0
-        q_process = 0.05
-        r_measure = 0.5
-        
-        for i in range(D):
-            x_est = X[0, i]
-            for t in range(1, T):
-                # Dự báo
-                p_cov = p_cov + q_process
-                # Cập nhật Kalman Gain
-                k_gain = p_cov / (p_cov + r_measure)
-                x_est = x_est + k_gain * (X[t, i] - x_est)
-                p_cov = (1 - k_gain) * p_cov
-            kalman_states[i] = x_est
+        nc = self.num_clusters
+        cs = self.cluster_size
 
-        # 2. Shannon Entropy & Co-occurrence Matrix (15 kỳ gần nhất)
-        X_med = X[-min(15, T):]
-        cov_matrix = np.corrcoef(X_med.T)
-        cov_matrix = np.nan_to_num(cov_matrix)
-        pair_density = np.sum(np.maximum(0, cov_matrix), axis=1) / float(D)
+        # Chuyển ma trận T x 80 thành T x 8 (Ma trận năng lượng cụm)
+        cluster_energy = np.zeros((T, nc))
+        for c in range(nc):
+            cluster_energy[:, c] = np.sum(X[:, c*cs : (c+1)*cs], axis=1)
 
-        # 3. Bù lệch pha Nhị nguyên Duality (Âm-Dương / Chẵn-Lẻ)
-        recent_k = X[-1]
-        even_mask = np.array([1 if (i + 1) % 2 == 0 else 0 for i in range(D)])
-        large_mask = np.array([1 if (i + 1) > 40 else 0 for i in range(D)])
+        # Tính ma trận liên kết chuyển đổi (Transition Coupling Matrix 8x8)
+        coupling_matrix = np.zeros((nc, nc))
+        for t in range(T - 1):
+            curr_state = cluster_energy[t, :]
+            next_state = cluster_energy[t + 1, :]
+            coupling_matrix += np.outer(curr_state, next_state)
 
-        even_ratio = np.sum(recent_k * even_mask) / 20.0
-        large_ratio = np.sum(recent_k * large_mask) / 20.0
+        # Chuẩn hóa ma trận liên kết
+        row_sums = coupling_matrix.sum(axis=1, keepdims=True) + 1e-9
+        coupling_matrix = coupling_matrix / row_sums
 
-        duality_bias = np.zeros(D)
-        for i in range(D):
-            b_even = (1.0 - even_ratio) if even_mask[i] else even_ratio
-            b_large = (1.0 - large_ratio) if large_mask[i] else large_ratio
-            duality_bias[i] = 0.5 * (b_even + b_large)
-
-        return kalman_states, pair_density, duality_bias
+        return cluster_energy, coupling_matrix
 
 
 # ==============================================================================
-# LỚP 2: MULTI-AGENT CONSENSUS LAYER (HỘI TỤ ĐA LUỒNG SUY LUẬN)
+# LỚP 1: LOCAL SUB-NETWORK RESONANCE & ROUTING
 # ==============================================================================
-class MultiAgentConsensusLayer:
-    def process(self, X, kalman_states, pair_density, duality_bias):
+class SubNetworkResonanceEngine:
+    """Phân tích dòng chảy năng lượng nội tại và liên mảng để chọn cụm tối ưu."""
+    def process(self, X, cluster_energy, coupling_matrix):
         T, D = X.shape
-        freqs_short = X[-min(6, T):].sum(axis=0)
+        nc = cluster_energy.shape[1]
+        cs = D // nc
 
-        # Agent 1: Tín hiệu Kalman sạch nhiễu
-        a1_score = kalman_states
+        # Dự báo năng lượng cụm ở kỳ tiếp theo dựa trên trạng thái kỳ hiện tại và ma trận liên kết
+        latest_state = cluster_energy[-1, :]
+        predicted_flux = np.dot(latest_state, coupling_matrix)
 
-        # Agent 2: Ranh giới pha bộc phát (Ưu tiên số nổ 1-2 lần)
-        a2_score = np.ones(D)
-        for i in range(D):
-            if freqs_short[i] in [1, 2]:
-                a2_score[i] = 2.05 # Tối đa hóa điểm bùng nổ
-            elif freqs_short[i] == 0:
-                a2_score[i] = 0.30 # Phạt số đóng băng
-            elif freqs_short[i] >= 4:
-                a2_score[i] = 0.10 # Phạt bão hòa
+        # Xác định cụm mảng có dòng chảy thông tin mạnh nhất (Active Cluster)
+        active_cluster_idx = int(np.argmax(predicted_flux))
 
-        # Agent 3: Mật độ liên kết cặp
-        a3_score = pair_density
+        # Trích xuất các con số bên trong cụm mảng đang hoạt động mạnh
+        cluster_start = active_cluster_idx * cs
+        cluster_end = (active_cluster_idx + 1) * cs
+        cluster_numbers = list(range(cluster_start + 1, cluster_end + 1))
 
-        # Chuẩn hóa Min-Max
-        norm1 = (a1_score - a1_score.min()) / (a1_score.max() - a1_score.min() + 1e-9)
-        norm3 = (a3_score - a3_score.min()) / (a3_score.max() - a3_score.min() + 1e-9)
-        norm_dual = (duality_bias - duality_bias.min()) / (duality_bias.max() - duality_bias.min() + 1e-9)
+        # Tính điểm xung lực chi tiết cho từng số bên trong cụm đó kết hợp toàn cục
+        global_freqs = X.sum(axis=0)
+        local_scores = np.zeros(D)
 
-        # Tích chéo hội tụ Cân bằng Nash
-        consensus = (norm1 ** 1.2) * (norm3 ** 1.4) * (norm_dual ** 1.1) * a2_score
-        return consensus
+        for num in cluster_numbers:
+            idx = num - 1
+            # Ưu tiên số có tần suất vừa phải trong cụm (1-2 lần trong chuỗi gần)
+            recent_freq = X[-min(6, T):, idx].sum()
+            if recent_freq in [1, 2]:
+                local_scores[idx] = 2.5 * (1.0 / (global_freqs[idx] + 1.0))
+            else:
+                local_scores[idx] = 1.0 * (1.0 / (global_freqs[idx] + 1.0))
+
+        # Sắp xếp các số trong cụm chủ lực và phần mở rộng liên kết
+        ranked_indices = np.argsort(local_scores)[::-1]
+        ranked_numbers = [idx + 1 for idx in ranked_indices if idx + 1 in cluster_numbers]
+
+        # Nếu cụm không đủ số, bổ sung từ các cụm có liên kết mạnh nhì
+        if len(ranked_numbers) < 8:
+            for idx in ranked_indices:
+                num = idx + 1
+                if num not in ranked_numbers:
+                    ranked_numbers.append(num)
+
+        return active_cluster_idx + 1, cluster_numbers, ranked_numbers, local_scores
 
 
 # ==============================================================================
-# LỚP 3: HILBERT PHASE-IMPULSE FILTER (GIẢI QUYẾT THÁCH THỨC 2: CHỐNG LẶP SỐ)
+# LỚP 2: COMBINATORIAL ROUTER CHO BẬC 2 & BẬC 3
 # ==============================================================================
-class HilbertImpulseFilterLayer:
-    """Khóa pha và triệt tiêu tức thì các số bị kẹt lặp ở kỳ T-1 hoặc T-2."""
-    def filter(self, X, consensus_vector):
-        T, D = X.shape
-        final_scores = consensus_vector.copy()
+class SubNetworkCombinatorialRouter:
+    """Định tuyến các con số từ cụm liên kết thành dàn Bậc 2 và Bậc 3 tối ưu."""
+    def route(self, X, ranked_numbers, local_scores):
+        D = X.shape[1]
+        final_scores = local_scores.copy()
 
+        # Triệt tiêu lặp số kỳ T-1
         for i in range(D):
-            # Triệt tiêu lặp kỳ T-1
             if X[-1, i] == 1:
-                final_scores[i] *= 0.15
-            # Phạt lặp kép T-1 và T-2
-            if T >= 2 and X[-1, i] == 1 and X[-2, i] == 1:
-                final_scores[i] *= 0.02
+                final_scores[i] *= 0.20
 
-        return final_scores
+        # Tái sắp xếp theo điểm số thực tế sau khi lọc lặp
+        final_ranked_indices = np.argsort(final_scores)[::-1]
+        final_ranked_numbers = [idx + 1 for idx in final_ranked_indices]
 
+        # Phân bổ Dual-Core Alpha / Beta từ cụm liên kết
+        alpha_core = [final_ranked_numbers[i] for i in range(0, 12, 2)]
+        beta_core = [final_ranked_numbers[i] for i in range(1, 12, 2)]
 
-# ==============================================================================
-# LỚP 4: PARETO MULTI-TIER ROUTER (GIẢI QUYẾT THÁCH THỨC 3: PHÂN BỔ TỐI ƯU TOÀN CỤC)
-# ==============================================================================
-class ParetoMultiTierRouter:
-    """Định tuyến năng lượng đa bậc tự động tối ưu hóa lợi nhuận kỳ vọng EV."""
-    def route(self, final_scores):
-        D = len(final_scores)
-        ranked_indices = np.argsort(final_scores)[::-1]
-        ranked_numbers = [idx + 1 for idx in ranked_indices]
-
-        # Phân bổ Dual-Core Alpha (Tích lũy) & Beta (Bùng nổ)
-        alpha_core = [ranked_numbers[i] for i in range(0, 16, 2)]
-        beta_core = [ranked_numbers[i] for i in range(1, 16, 2)]
-
-        # Nhóm Bậc Nhỏ (Bậc 2, 3, 4)
         bac2_alpha = sorted(alpha_core[:2])
         bac2_beta = sorted(beta_core[:2])
-        bac2_backup = sorted([ranked_numbers[16], ranked_numbers[17]])
 
         bac3_alpha = sorted(alpha_core[:3])
         bac3_beta = sorted(beta_core[:3])
 
-        bac4_alpha = sorted(alpha_core[:4])
-        bac4_beta = sorted(beta_core[:4])
-
-        # Nhóm Bậc Lớn (Bậc 7, 8, 9)
-        bac7_master = sorted(ranked_numbers[:7])
-        bac8_master = sorted(ranked_numbers[:8])
-        bac9_master = sorted(ranked_numbers[:9])
-        bac8_backup = sorted(ranked_numbers[8:16])
-
         return {
-            "ranked_all": ranked_numbers,
-            "scores": final_scores,
             "bac2_alpha": bac2_alpha,
             "bac2_beta": bac2_beta,
-            "bac2_backup": bac2_backup,
             "bac3_alpha": bac3_alpha,
             "bac3_beta": bac3_beta,
-            "bac4_alpha": bac4_alpha,
-            "bac4_beta": bac4_beta,
-            "bac7_master": bac7_master,
-            "bac8_master": bac8_master,
-            "bac9_master": bac9_master,
-            "bac8_backup": bac8_backup
+            "ranked_all": final_ranked_numbers,
+            "scores": final_scores
         }
 
 
 # ==============================================================================
-# UI STREAMLIT (HD-PME v21.0)
+# UI STREAMLIT (v25.0)
 # ==============================================================================
-st.title("🦅 MDM-IDS v21.0: DYNAMIC RESONANCE ENGINE")
-st.caption("Giải Quyết Triệt Để 3 Thách Thức Xác Suất • Lọc Kalman Động • Khóa Pha Hilbert • Định Tuyến Pareto Đa Bậc")
+st.title("🌐 MDM-IDS v25.0: SUB-NETWORK INTERCONNECTION ENGINE")
+st.caption("Kiến Trúc Phân Rã Mảng Nhỏ • Ma Trận Liên Kết Liên Mảng (Coupling Flux) • Tối Ưu Bậc 2 & Bậc 3")
 
 with st.sidebar:
-    st.header("⚙️ Cấu Hình Khung Thời Gian")
-    min_window = st.slider("Cửa sổ tối thiểu (Kỳ):", 6, 15, 10)
-    max_window = st.slider("Cửa sổ tối đa (Kỳ):", 15, 50, 30)
+    st.header("⚙️ Cấu Hình Mảng & Cửa Sổ")
+    min_window = st.slider("Cửa sổ tối thiểu (Kỳ):", 6, 15, 8)
+    max_window = st.slider("Cửa sổ tối đa (Kỳ):", 15, 30, 20)
 
 raw_input = st.text_area(
-    "Dán dữ liệu cuốn chiếu Keno (10 - 30 kỳ):",
-    placeholder="Kỳ 1: 01 02 05 08 ...\nKỳ 2: ...\n...\nKỳ 20: ...",
+    "Dán dữ liệu cuốn chiếu Keno (8 - 25 kỳ):",
+    placeholder="Kỳ 1: 01 02 05 08 ...\nKỳ 2: ...",
     height=180
 )
 
 if raw_input.strip():
-    pipeline = HyperTensorPipeline()
-    matrix, total_kies = pipeline.build_tensor(raw_input, min_kies=min_window, max_kies=max_window)
+    pipeline = SubNetworkTopologyPipeline()
+    matrix, total_kies = pipeline.build_clusters(raw_input, min_kies=min_window, max_kies=max_window)
 
     if matrix is not None:
-        # Lớp 1: Lọc Kalman & Pha
-        l1 = AdaptiveKalmanPhaseLayer()
-        kalman_states, pair_density, duality = l1.process(matrix)
+        # Lớp 0: Xây dựng ma trận liên kết cụm
+        cluster_energy, coupling_matrix = pipeline.compute_inter_cluster_matrix(matrix)
 
-        # Lớp 2: Multi-Agent Consensus
-        l2 = MultiAgentConsensusLayer()
-        consensus = l2.process(matrix, kalman_states, pair_density, duality)
+        # Lớp 1: Cảm ứng cộng hưởng liên mảng
+        resonance_engine = SubNetworkResonanceEngine()
+        active_cluster, cluster_nums, ranked_nums, local_scores = resonance_engine.process(matrix, cluster_energy, coupling_matrix)
 
-        # Lớp 3: Khóa Pha Chống Lặp
-        l3 = HilbertImpulseFilterLayer()
-        final_scores = l3.filter(matrix, consensus)
+        # Lớp 2: Định tuyến Bậc 2 & Bậc 3
+        router = SubNetworkCombinatorialRouter()
+        res = router.route(matrix, ranked_nums, local_scores)
 
-        # Lớp 4: Định Tuyến Đa Bậc Pareto
-        l4 = ParetoMultiTierRouter()
-        res = l4.route(final_scores)
-
-        st.success(f"⚡ Đã xử lý triệt tiêu nhiễu Kalman & tính toán hoàn tất v21.0 trên {total_kies} kỳ dữ liệu!")
+        st.success(f"⚡ Đã phân rã 80 số thành 8 mảng nhỏ, phát hiện Dòng chảy Cụm chủ lực số #{active_cluster} trên {total_kies} kỳ!")
         st.markdown("---")
 
-        tab_small, tab_large, tab_analytics = st.tabs([
-            "🎯 NHÓM BẬC NHỎ (BẬC 2, 3, 4)", 
-            "🛡️ NHÓM BẬC LỚN (BẬC 7, 8, 9)", 
-            "📊 PHÂN TÍCH CHỈ SỐ NĂNG LƯỢNG"
-        ])
+        st.info(f"📍 **Cụm mảng đang có dòng chảy thông tin tương tác mạnh nhất:** `Cụm #{active_cluster}` (Gồm các số: {', '.join([str(n) for n in cluster_nums])})")
 
-        with tab_small:
-            st.subheader("🔥 MỤC TIÊU BẬC 2 (ĐẶC THÙ ĂN TĂNG TRƯỞNG - THƯỞNG 90.000 VNĐ)")
-            c2a, c2b, c2c = st.columns(3)
-            with c2a:
-                st.markdown(f"<div style='text-align:center; padding:15px; background:#0A192F; border-radius:10px; border:2px solid #00F0FF;'>"
-                            f"<span style='color:#00F0FF; font-weight:bold;'>BẬC 2 - ALPHA</span>"
-                            f"<h2 style='color:#FFF; margin:5px 0;'>{res['bac2_alpha'][0]:02d} — {res['bac2_alpha'][1]:02d}</h2>"
-                            f"<p style='color:#AAA; margin:0; font-size:0.8rem;'>Dàn Tích Lũy Pha</p></div>", unsafe_allow_html=True)
-            with c2b:
-                st.markdown(f"<div style='text-align:center; padding:15px; background:#1A0903; border-radius:10px; border:2px solid #FF5500;'>"
-                            f"<span style='color:#FF5500; font-weight:bold;'>BẬC 2 - BETA (BÙNG NỔ)</span>"
+        # HIỂN THỊ BẬC 2 & BẬC 3
+        col_a, col_b = st.columns(2)
+
+        with col_a:
+            st.subheader("🔥 MỤC TIÊU BẬC 2 (CHỌN 2 - ĂN 90.000 VNĐ)")
+            st.markdown(f"<div style='text-align:center; padding:12px; background:#0A192F; border-radius:8px; border:2px solid #00F0FF;'>"
+                        f"<span style='color:#00F0FF; font-weight:bold;'>BẬC 2 - ALPHA (TÍCH LŨY)</span>"
+                        f"<h2 style='color:#FFF; margin:5px 0;'>{res['bac2_alpha'][0]:02d} — {res['bac2_alpha'][1]:02d}</h2></div>", unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown(f"<div style='text-align:center; padding:12px; background:#1A0903; border-radius:8px; border:2px solid #FF5500;'>"
+                        f"<span style='color:#FF5500; font-weight:bold;'>BẬC 2 - BETA (BÙNG NỔ)</span>"
+                        f"<h2 style='color:#FFF; margin:5px 0;'>{res['bac2_beta'][0]:02d} — {res['bac2_beta'][1]:02d}</h2></div>", unsafe_allow_html=True)
+
+        with col_b:
+            st.subheader("⚡ MỤC TIÊU BẬC 3 (CHỌN 3 - HOÀN VỐN / THƯỞNG)")
+            b3_a_str = " - ".join([f"{n:02d}" for n in res["bac3_alpha"]])
+            b3_b_str = " - ".join([f"{n:02d}" for n in res["bac3_beta"]])
+            st.info(f"**BẬC 3 - ALPHA:**\n### **{b3_a_str}**")
+            st.warning(f"**BẬC 3 - BETA (BỘC PHÁT):**\n### **{b3_b_str}**")
+
+        st.markdown("---")
+        st.subheader("📊 BẢNG XẾP HẠNG XUNG LỰC NỘI TẠI CỤM MẢNG")
+        df_top = pd.DataFrame({
+            "Thứ hạng": [f"Top {i+1}" for i in range(10)],
+            "Con số": [f"Số {res['ranked_all'][i]:02d}" for i in range(10)],
+            "Điểm Tương Tác Vảng": [f"{res['scores'][res['ranked_all'][i]-1]:.6f}" for i in range(10)]
+        })
+        st.table(df_top.T)
+
+    else:
+        st.warning(f"Cần tối thiểu {min_window} kỳ dữ liệu để phân tích mảng liên kết (Hiện có {total_kies} kỳ).")
+else:
+    st.info("Dán dữ liệu cuốn chiếu Keno vào khung trên để khởi chạy mô hình Sub-Network v25.0.")ETA (BÙNG NỔ)</span>"
                             f"<h2 style='color:#FFF; margin:5px 0;'>{res['bac2_beta'][0]:02d} — {res['bac2_beta'][1]:02d}</h2>"
                             f"<p style='color:#AAA; margin:0; font-size:0.8rem;'>Dàn Phụ Bộc Phát</p></div>", unsafe_allow_html=True)
             with c2c:
