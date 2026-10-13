@@ -3,19 +3,16 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="MDM-IDS v25.0 Sub-Network Interconnection Engine", layout="wide")
+st.set_page_config(page_title="MDM-IDS v35.0 Fano-Geometry Engine", layout="wide")
 
 # ==============================================================================
-# LỚP 0: SUB-NETWORK TOPOLOGY PIPELINE (CHIA MẢNG & XÁC LẬP LIÊN KẾT)
+# LỚP 0: MULTI-LAYER FILTER (RÚT GỌN 80 SỐ XUỐNG 14 SỐ TIỀM NĂNG)
 # ==============================================================================
-class SubNetworkTopologyPipeline:
-    """Phân rã không gian 80 số thành 8 cụm mảng nhỏ và xây dựng ma trận liên kết."""
-    def __init__(self, n_numbers=80, cluster_size=10):
+class MultiLayerFilterPipeline:
+    def __init__(self, n_numbers=80):
         self.D = n_numbers
-        self.cluster_size = cluster_size
-        self.num_clusters = n_numbers // cluster_size # 8 cụm
 
-    def build_clusters(self, raw_text: str, min_kies=8, max_kies=25):
+    def extract_top_pool(self, raw_text: str, min_kies=5, max_kies=15):
         cleaned_data = re.sub(r'(?:Kì|Kỳ)\s*\d+[:\s]*', '\n', raw_text.strip(), flags=re.IGNORECASE)
         all_numbers = [int(n) for n in re.findall(r'\b\d{1,2}\b', cleaned_data) if 1 <= int(n) <= self.D]
         total_kies = len(all_numbers) // 20
@@ -31,170 +28,136 @@ class SubNetworkTopologyPipeline:
             for num in used_numbers[k * 20 : (k + 1) * 20]:
                 matrix[k, num - 1] = 1.0
 
-        return matrix, kies_to_use
-
-    def compute_inter_cluster_matrix(self, X):
-        T, D = X.shape
-        nc = self.num_clusters
-        cs = self.cluster_size
-
-        cluster_energy = np.zeros((T, nc))
-        for c in range(nc):
-            cluster_energy[:, c] = np.sum(X[:, c*cs : (c+1)*cs], axis=1)
-
-        coupling_matrix = np.zeros((nc, nc))
-        for t in range(T - 1):
-            curr_state = cluster_energy[t, :]
-            next_state = cluster_energy[t + 1, :]
-            coupling_matrix += np.outer(curr_state, next_state)
-
-        row_sums = coupling_matrix.sum(axis=1, keepdims=True) + 1e-9
-        coupling_matrix = coupling_matrix / row_sums
-
-        return cluster_energy, coupling_matrix
-
-
-# ==============================================================================
-# LỚP 1: LOCAL SUB-NETWORK RESONANCE & ROUTING
-# ==============================================================================
-class SubNetworkResonanceEngine:
-    """Phân tích dòng chảy năng lượng nội tại và liên mảng để chọn cụm tối ưu."""
-    def process(self, X, cluster_energy, coupling_matrix):
-        T, D = X.shape
-        nc = cluster_energy.shape[1]
-        cs = D // nc
-
-        latest_state = cluster_energy[-1, :]
-        predicted_flux = np.dot(latest_state, coupling_matrix)
-
-        active_cluster_idx = int(np.argmax(predicted_flux))
-
-        cluster_start = active_cluster_idx * cs
-        cluster_end = (active_cluster_idx + 1) * cs
-        cluster_numbers = list(range(cluster_start + 1, cluster_end + 1))
-
-        global_freqs = X.sum(axis=0)
-        local_scores = np.zeros(D)
-
-        for num in cluster_numbers:
-            idx = num - 1
-            recent_freq = X[-min(6, T):, idx].sum()
-            if recent_freq in [1, 2]:
-                local_scores[idx] = 2.5 * (1.0 / (global_freqs[idx] + 1.0))
+        # Tính điểm xung lực đa tầng (Tần suất + Đồ thị cộng sinh ngắn hạn)
+        freqs = matrix.sum(axis=0)
+        recent_k = matrix[-1]
+        
+        scores = np.zeros(self.D)
+        for i in range(self.D):
+            # Phạt số vừa ra ở T-1 để chống lặp
+            penalty = 0.2 if recent_k[i] == 1.0 else 1.0
+            # Ưu tiên số xuất hiện 1-2 lần trong 5 kỳ
+            if freqs[i] in [1, 2]:
+                scores[i] = 2.0 * penalty / (freqs[i] + 1)
             else:
-                local_scores[idx] = 1.0 * (1.0 / (global_freqs[idx] + 1.0))
+                scores[i] = 0.5 * penalty / (freqs[i] + 1.0)
 
-        ranked_indices = np.argsort(local_scores)[::-1]
-        ranked_numbers = [idx + 1 for idx in ranked_indices if idx + 1 in cluster_numbers]
+        ranked_indices = np.argsort(scores)[::-1]
+        # Lấy đúng 14 con số đứng đầu qua bộ lọc đa tầng
+        top_14 = [idx + 1 for idx in ranked_indices[:14]]
 
-        if len(ranked_numbers) < 8:
-            for idx in ranked_indices:
-                num = idx + 1
-                if num not in ranked_numbers:
-                    ranked_numbers.append(num)
-
-        return active_cluster_idx + 1, cluster_numbers, ranked_numbers, local_scores
+        return matrix, top_14, scores
 
 
 # ==============================================================================
-# LỚP 2: COMBINATORIAL ROUTER CHO BẬC 2 & BẬC 3
+# LỚP 1: FANO PLANE & FINITE GEOMETRY MAPPING ENGINE
 # ==============================================================================
-class SubNetworkCombinatorialRouter:
-    """Định tuyến các con số từ cụm liên kết thành dàn Bậc 2 và Bậc 3 tối ưu."""
-    def route(self, X, ranked_numbers, local_scores):
-        D = X.shape[1]
-        final_scores = local_scores.copy()
+class FanoGeometryEngine:
+    """Ánh xạ 14 số thành 2 cấu trúc Mặt phẳng Fano PG(2,2) và tìm cặp đồng phẳng."""
+    def __init__(self):
+        # Định nghĩa 7 đường thẳng của Mặt phẳng Fano (dưới dạng các bộ 3 điểm)
+        # Các điểm được đánh số từ 0 đến 6 (tương ứng giá trị số % 7 hoặc chỉ số mảng)
+        self.fano_lines = [
+            (0, 1, 2), (3, 4, 5), (0, 3, 6), 
+            (1, 4, 6), (2, 5, 6), (0, 4, 5), (1, 3, 5)
+        ]
 
-        for i in range(D):
-            if X[-1, i] == 1:
-                final_scores[i] *= 0.20
+    def process_fano_routing(self, top_14_numbers, scores):
+        # Chia 14 số thành 2 khối Fano (Mỗi khối 7 số)
+        block_1 = top_14_numbers[:7]
+        block_2 = top_14_numbers[7:]
 
-        final_ranked_indices = np.argsort(final_scores)[::-1]
-        final_ranked_numbers = [idx + 1 for idx in final_ranked_indices]
+        def evaluate_fano_block(block):
+            # Ánh xạ 7 số của block vào 7 điểm Fano (0 -> 6 qua modulo 7 hoặc vị trí)
+            # Tìm cặp số nằm trên cùng một đường thẳng Fano và có tổng điểm xung lực cao nhất
+            best_pair = None
+            max_line_score = -1.0
+            
+            # Tạo từ điển ánh xạ giá trị số theo chỉ số Fano 0-6
+            node_map = {i: block[i] for i in range(7)}
+            
+            for line in self.fano_lines:
+                # line chứa 3 chỉ số điểm, ví dụ (0, 1, 2)
+                n1, n2, n3 = node_map[line[0]], node_map[line[1]], node_map[line[2]]
+                
+                # Xét 3 cặp Bậc 2 có thể có trên đường thẳng Fano này
+                pairs_on_line = [(n1, n2), (n2, n3), (n1, n3)]
+                for p in pairs_on_line:
+                    p_score = scores[p[0]-1] + scores[p[1]-1]
+                    if p_score > max_line_score:
+                        max_line_score = p_score
+                        best_pair = sorted(list(p))
+                        
+            return best_pair, max_line_score
 
-        alpha_core = [final_ranked_numbers[i] for i in range(0, 12, 2)]
-        beta_core = [final_ranked_numbers[i] for i in range(1, 12, 2)]
+        # Trích xuất cặp Alpha từ Block 1 (Mặt phẳng Fano thứ nhất)
+        pair_alpha, score_alpha = evaluate_fano_block(block_1)
+        
+        # Trích xuất cặp Beta từ Block 2 (Mặt phẳng Fano thứ hai)
+        pair_beta, score_beta = evaluate_fano_block(block_2)
 
-        bac2_alpha = sorted(alpha_core[:2])
-        bac2_beta = sorted(beta_core[:2])
-
-        bac3_alpha = sorted(alpha_core[:3])
-        bac3_beta = sorted(beta_core[:3])
-
-        return {
-            "bac2_alpha": bac2_alpha,
-            "bac2_beta": bac2_beta,
-            "bac3_alpha": bac3_alpha,
-            "bac3_beta": bac3_beta,
-            "ranked_all": final_ranked_numbers,
-            "scores": final_scores
-        }
+        return pair_alpha, pair_beta, block_1, block_2
 
 
 # ==============================================================================
-# UI STREAMLIT (v25.0)
+# UI STREAMLIT (v35.0)
 # ==============================================================================
-st.title("🌐 MDM-IDS v25.0: SUB-NETWORK INTERCONNECTION ENGINE")
-st.caption("Kiến Trúc Phân Rã Mảng Nhỏ • Ma Trận Liên Kết Liên Mảng (Coupling Flux) • Tối Ưu Bậc 2 & Bậc 3")
+st.title("📐 MDM-IDS v35.0: FANO-GEOMETRY BẬC 2 ENGINE")
+st.caption("Bộ Lọc Đa Tầng 5 Kỳ • Ánh Xạ Hình Học Hữu Hạn PG(2,2) • Mặt Phẳng Fano & Cặp Đồng Phẳng")
 
 with st.sidebar:
-    st.header("⚙️ Cấu Hình Mảng & Cửa Sổ")
-    min_window = st.slider("Cửa sổ tối thiểu (Kỳ):", 6, 15, 8)
-    max_window = st.slider("Cửa sổ tối đa (Kỳ):", 15, 30, 20)
+    st.header("⚙️ Cấu Hình Không Gian")
+    min_kies = st.slider("Số kỳ đầu vào tối thiểu:", 5, 10, 5)
 
 raw_input = st.text_area(
-    "Dán dữ liệu cuốn chiếu Keno (8 - 25 kỳ):",
+    "Dán dữ liệu cuốn chiếu Keno (Từ 5 kỳ trở lên):",
     placeholder="Kỳ 1: 01 02 05 08 ...\nKỳ 2: ...",
-    height=180
+    height=160
 )
 
 if raw_input.strip():
-    pipeline = SubNetworkTopologyPipeline()
-    matrix, total_kies = pipeline.build_clusters(raw_input, min_kies=min_window, max_kies=max_window)
+    pipeline = MultiLayerFilterPipeline()
+    res_tuple = pipeline.extract_top_pool(raw_input, min_kies=min_kies)
 
-    if matrix is not None:
-        cluster_energy, coupling_matrix = pipeline.compute_inter_cluster_matrix(matrix)
+    if res_tuple[0] is not None:
+        matrix, top_14, scores = res_tuple
+        
+        # Ánh xạ qua Hình học Fano
+        fano_engine = FanoGeometryEngine()
+        pair_alpha, pair_beta, block_1, block_2 = fano_engine.process_fano_routing(top_14, scores)
 
-        resonance_engine = SubNetworkResonanceEngine()
-        active_cluster, cluster_nums, ranked_nums, local_scores = resonance_engine.process(matrix, cluster_energy, coupling_matrix)
-
-        router = SubNetworkCombinatorialRouter()
-        res = router.route(matrix, ranked_nums, local_scores)
-
-        st.success(f"⚡ Đã phân rã 80 số thành 8 mảng nhỏ, phát hiện Dòng chảy Cụm chủ lực số #{active_cluster} trên {total_kies} kỳ!")
+        st.success(f"⚡ Đã lọc thô còn 14 số qua đa tầng và chiếu xạ thành công lên 2 Mặt phẳng Fano!")
         st.markdown("---")
 
-        st.info(f"📍 **Cụm mảng đang có dòng chảy thông tin tương tác mạnh nhất:** `Cụm #{active_cluster}` (Gồm các số: {', '.join([str(n) for n in cluster_nums])})")
+        st.info(f"🧩 **Tập 14 số ưu tú từ bộ lọc đa tầng:** `{top_14}`")
 
         col_a, col_b = st.columns(2)
 
         with col_a:
-            st.subheader("🔥 MỤC TIÊU BẬC 2 (CHỌN 2 - ĂN 90.000 VNĐ)")
-            st.markdown(f"<div style='text-align:center; padding:12px; background:#0A192F; border-radius:8px; border:2px solid #00F0FF;'>"
-                        f"<span style='color:#00F0FF; font-weight:bold;'>BẬC 2 - ALPHA (TÍCH LŨY)</span>"
-                        f"<h2 style='color:#FFF; margin:5px 0;'>{res['bac2_alpha'][0]:02d} — {res['bac2_alpha'][1]:02d}</h2></div>", unsafe_allow_html=True)
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown(f"<div style='text-align:center; padding:12px; background:#1A0903; border-radius:8px; border:2px solid #FF5500;'>"
-                        f"<span style='color:#FF5500; font-weight:bold;'>BẬC 2 - BETA (BÙNG NỔ)</span>"
-                        f"<h2 style='color:#FFF; margin:5px 0;'>{res['bac2_beta'][0]:02d} — {res['bac2_beta'][1]:02d}</h2></div>", unsafe_allow_html=True)
+            st.subheader("🔥 BẬC 2 - ALPHA (MẶT PHẲNG FANO 1)")
+            st.markdown(f"<div style='text-align:center; padding:15px; background:#0A192F; border-radius:10px; border:2px solid #00F0FF;'>"
+                        f"<span style='color:#00F0FF; font-weight:bold;'>CẶP ĐỒNG PHẲNG FANO #1</span>"
+                        f"<h1 style='color:#FFF; margin:10px 0;'>{pair_alpha[0]:02d} — {pair_alpha[1]:02d}</h1>"
+                        f"<p style='color:#AAA; margin:0; font-size:0.8rem;'>Thuộc khối điểm: {block_1}</p></div>", unsafe_allow_html=True)
 
         with col_b:
-            st.subheader("⚡ MỤC TIÊU BẬC 3 (CHỌN 3 - HOÀN VỐN / THƯỞNG)")
-            b3_a_str = " - ".join([f"{n:02d}" for n in res["bac3_alpha"]])
-            b3_b_str = " - ".join([f"{n:02d}" for n in res["bac3_beta"]])
-            st.info(f"**BẬC 3 - ALPHA:**\n### **{b3_a_str}**")
-            st.warning(f"**BẬC 3 - BETA (BỘC PHÁT):**\n### **{b3_b_str}**")
+            st.subheader("⚡ BẬC 2 - BETA (MẶT PHẲNG FANO 2)")
+            st.markdown(f"<div style='text-align:center; padding:15px; background:#1A0903; border-radius:10px; border:2px solid #FF5500;'>"
+                        f"<span style='color:#FF5500; font-weight:bold;'>CẶP ĐỒNG PHẲNG FANO #2</span>"
+                        f"<h1 style='color:#FFF; margin:10px 0;'>{pair_beta[0]:02d} — {pair_beta[1]:02d}</h1>"
+                        f"<p style='color:#AAA; margin:0; font-size:0.8rem;'>Thuộc khối điểm: {block_2}</p></div>", unsafe_allow_html=True)
 
         st.markdown("---")
-        st.subheader("📊 BẢNG XẾP HẠNG XUNG LỰC NỘI TẠI CỤM MẢNG")
+        st.subheader("📊 CHI TIẾT ĐIỂM XUNG LỰC 14 SỐ QUA BỘ LỌC ĐA TẦNG")
         df_top = pd.DataFrame({
-            "Thứ hạng": [f"Top {i+1}" for i in range(10)],
-            "Con số": [f"Số {res['ranked_all'][i]:02d}" for i in range(10)],
-            "Điểm Tương Tác Vảng": [f"{res['scores'][res['ranked_all'][i]-1]:.6f}" for i in range(10)]
+            "Thứ hạng": [f"Top {i+1}" for i in range(14)],
+            "Con số": [f"Số {top_14[i]:02d}" for i in range(14)],
+            "Phân bổ Fano": ["Mặt phẳng Fano 1" if i < 7 else "Mặt phẳng Fano 2" for i in range(14)],
+            "Điểm Lọc Đa Tầng": [f"{scores[top_14[i]-1]:.6f}" for i in range(14)]
         })
         st.table(df_top.T)
 
     else:
-        st.warning(f"Cần tối thiểu {min_window} kỳ dữ liệu để phân tích mảng liên kết (Hiện có {total_kies} kỳ).")
+        st.warning(f"Cần tối thiểu {min_kies} kỳ dữ liệu để khởi chạy pipeline (Hiện có {res_tuple[1]} kỳ).")
 else:
-    st.info("Dán dữ liệu cuốn chiếu Keno vào khung trên để khởi chạy mô hình Sub-Network v25.0.")
+    st.info("Dán dữ liệu cuốn chiếu Keno vào khung trên để khởi chạy mô hình Fano-Geometry v35.0.")
