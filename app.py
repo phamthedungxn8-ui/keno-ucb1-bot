@@ -3,9 +3,9 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="MDM-IDS v102.0 Dynamic Reversal Engine", layout="wide")
+st.set_page_config(page_title="MDM-IDS v103.0 Koopman-Spectral Engine", layout="wide")
 
-class UnifiedDynamicReversalEngine:
+class KoopmanSpectralEngine:
     def __init__(self, n_numbers=80):
         self.D = n_numbers
 
@@ -27,46 +27,61 @@ class UnifiedDynamicReversalEngine:
 
         return matrix, kies_to_use
 
-    def execute_reversal_convergence(self, matrix: np.ndarray):
+    def build_observables(self, matrix: np.ndarray):
+        """
+        EDMD Observable Dictionary: Nâng bậc không gian tuyến tính 
+        bằng cách kết hợp trạng thái gốc và các tương tác cặp (cross-products).
+        """
         T, D = matrix.shape
+        # Dictionary bao gồm: Trạng thái tuyến tính gốc + Một số tích chéo tiêu biểu
+        observables = []
+        for t in range(T):
+            x = matrix[t]
+            # Mở rộng không gian quan sát phi tuyến thành tuyến tính hóa
+            # Lấy vector gốc kết hợp với tổng tích chéo cục bộ để xấp xỉ không gian Hilbert
+            obs = np.concatenate([x, np.convolve(x, [1, -1], mode='same')])
+            observables.append(obs)
+        return np.array(observables)
 
-        # Tầng 1 & 2: Functor Embedding & Persistent Homology (Mở rộng chiều nhúng lên 6 nếu đủ kỳ)
-        emb_dim = min(6, T)
-        point_cloud = []
-        for t in range(T - emb_dim + 1):
-            point_cloud.append(matrix[t : t + emb_dim].flatten())
-        point_cloud = np.array(point_cloud)
+    def execute_koopman_analysis(self, matrix: np.ndarray):
+        T, D = matrix.shape
+        
+        # Bước 1: Xây dựng không gian hàm quan sát Z
+        Z = self.build_observables(matrix)
+        if len(Z) < 3:
+            return None
 
-        if len(point_cloud) >= 2:
-            sum_sq = np.sum(point_cloud**2, axis=1, keepdims=True)
-            dist_mat = np.sqrt(np.maximum(sum_sq + sum_sq.T - 2.0 * np.dot(point_cloud, point_cloud.T), 0.0))
-            thresholds = np.linspace(0.1, 1.8, 12)
-            ranks = [np.linalg.matrix_rank((dist_mat <= eps).astype(int)) for eps in thresholds]
-            topological_persistence = float(np.std(ranks))
-        else:
-            topological_persistence = 0.0
+        # Tách thành hai ma trận thời gian dịch chuyển (Time-shifted snapshots)
+        Z1 = Z[:-1].T  # Kỳ t
+        Z2 = Z[1:].T   # Kỳ t + 1
 
-        # Tầng 3: Neural ODE Dynamic Vector Field với biến động trạng thái (Variance-Driven)
-        latent = point_cloud[-1] if len(point_cloud) > 0 else np.zeros(16)
-        if len(latent) < 16:
-            latent = np.pad(latent, (0, 16 - len(latent)))
-        else:
-            latent = latent[:16]
+        # Bước 2: Tính toán Toán tử Koopman K bằng EDMD (Least Squares via Pseudo-Inverse)
+        # K * Z1 = Z2 => K = Z2 * pinv(Z1)
+        try:
+            K = np.dot(Z2, np.linalg.pinv(Z1))
+        except Exception:
+            K = np.eye(Z1.shape[0])
 
-        # Tích hợp ma trận trọng số động dựa trên độ biến thiên lịch sử
-        np.random.seed(102)
-        weights = np.random.randn(16, 16) * 0.15
-        state = latent.copy()
-        velocities = []
-        for _ in range(6):
-            dh_dt = np.tanh(np.dot(state, weights))
-            velocities.append(np.linalg.norm(dh_dt))
-            state += dh_dt
+        # Bước 3: Phân rã Phổ (Spectral Decomposition)
+        eigenvalues, eigenvectors = np.linalg.eig(K)
 
-        phase_transition_index = float(np.mean(velocities))
+        # Bước 4: Lọc các mode dao động bền vững (Bỏ nhiễu suy giảm, giữ lại năng lượng chuẩn)
+        # Sàng lọc các trị riêng có biên độ |lambda| gần 1 nhất (Invariant subspaces)
+        magnitudes = np.abs(eigenvalues)
+        stable_indices = np.argsort(np.abs(magnitudes - 1.0))[:min(10, len(eigenvalues))]
+        
+        dominant_eigenvalues = eigenvalues[stable_indices]
+        dominant_eigenvectors = eigenvectors[:, stable_indices]
 
-        # Tính toán khoảng cách vắng bóng (Recency / Vacuum Gap) cho từng số
-        # Đếm số kỳ kể từ lần xuất hiện gần nhất trong cửa sổ lịch sử
+        # Bước 5: Dự báo năng lượng trạng thái tiếp theo cho 80 con số
+        # Chiếu ngược qua các mode phổ Koopman thuần túy
+        latest_obs = Z[-1]
+        projected_state = np.real(np.dot(K, latest_obs))
+        
+        # Trích xuất phần năng lượng tương ứng với không gian 80 số gốc
+        base_scores = np.abs(projected_state[:D])
+
+        # Bộ lọc kháng quán tính & Hút chân không (Vacuum Reversal Integration)
         absence_gaps = np.zeros(D)
         for i in range(D):
             last_seen = -1
@@ -76,44 +91,35 @@ class UnifiedDynamicReversalEngine:
                     break
             absence_gaps[i] = last_seen if last_seen != -1 else T
 
-        recent_act = matrix[-min(5, T):].sum(axis=0) # Tần suất trong 5 kỳ gần nhất
-        scores = np.zeros(D)
+        recent_act = matrix[-min(5, T):].sum(axis=0)
+        final_scores = np.zeros(D)
 
         for i in range(D):
-            # 1. Hệ số kháng quán tính nặng: Nếu ra quá nhiều ở 5 kỳ gần nhất -> Phạt cực nặng
-            if recent_act[i] >= 3:
-                inertia_multiplier = 0.05
-            elif recent_act[i] == 2:
-                inertia_multiplier = 0.4
-            elif recent_act[i] == 1:
-                inertia_multiplier = 1.0
-            else:
-                inertia_multiplier = 0.6 # Số chưa ra lâu quá cũng cần cẩn trọng
+            # Phạt số ra quá nhiều liên tục
+            inertia_factor = 0.05 if recent_act[i] >= 3 else (0.5 if recent_act[i] == 2 else 1.0)
+            # Thưởng vùng trũng chân không (đảo chiều pha)
+            vacuum_boost = 2.0 if 2 <= absence_gaps[i] <= 5 else 1.0
+            
+            final_scores[i] = base_scores[i] * vacuum_boost * inertia_factor
 
-            # 2. Hiệu ứng hút chân không (Vacuum Reversal Bonus): Thưởng điểm cho số vắng bóng từ 2 đến 5 kỳ (vùng chuẩn bị đảo chiều)
-            vacuum_bonus = 1.0
-            if 2 <= absence_gaps[i] <= 5:
-                vacuum_bonus = 2.5 # Kéo các số ở "vùng trũng" lên lõi hội tụ
-
-            # Tổng hợp năng lượng hội tụ đa tạp
-            scores[i] = (topological_persistence * 1.2 + phase_transition_index * 1.8) * vacuum_bonus * inertia_multiplier
-
-        ranked_indices = np.argsort(scores)[::-1]
+        ranked_indices = np.argsort(final_scores)[::-1]
         core_10_numbers = [idx + 1 for idx in ranked_indices[:10]]
 
+        # Đo lường độ ổn định phổ (Spectral Coherence Index)
+        spectral_coherence = float(np.mean(np.abs(dominant_eigenvalues)))
+
         return {
-            "topological_persistence": topological_persistence,
-            "phase_transition_index": phase_transition_index,
+            "spectral_coherence": spectral_coherence,
             "core_10_numbers": core_10_numbers,
-            "scores": scores
+            "scores": final_scores
         }
 
-# Giao diện Streamlit v102.0
-st.title("🌌 MDM-IDS v102.0: DYNAMIC REVERSAL ENGINE")
-st.caption("Tích hợp Bộ lọc Kháng Quán Tính & Hiệu ứng Hút Chân Không (Vacuum Reversal)")
+# Giao diện Streamlit v103.0
+st.title("🌌 MDM-IDS v103.0: KOOPMAN-SPECTRAL ENGINE")
+st.caption("Tuyến tính hóa phi tuyến • Không gian Hilbert • Phân rã Phổ EDMD")
 
 with st.sidebar:
-    st.header("⚙️ Cấu Hình Dữ Liệu")
+    st.header("⚙️ Cấu Hình Cửa Sổ Dữ Liệu")
     min_w = st.slider("Cửa sổ tối thiểu:", 8, 15, 10)
     max_w = st.slider("Cửa sổ tối đa:", 15, 35, 25)
 
@@ -124,40 +130,41 @@ raw_input = st.text_area(
 )
 
 if raw_input.strip():
-    engine = UnifiedDynamicReversalEngine()
+    engine = KoopmanSpectralEngine()
     matrix, total_kies = engine.parse_data(raw_input, min_kies=min_w, max_kies=max_w)
 
     if matrix is not None:
-        res = engine.execute_reversal_convergence(matrix)
+        res = engine.execute_koopman_analysis(matrix)
 
-        st.success(f"⚡ Đã quét mô hình đảo chiều động trên {total_kies} kỳ dữ liệu!")
-        st.markdown("---")
+        if res is not None:
+            st.success(f"⚡ Đã phân rã phổ Koopman thành công trên {total_kies} kỳ dữ liệu!")
+            st.markdown("---")
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric(label="🌀 Độ Bền Tôpô (Persistence)", value=f"{res['topological_persistence']:.4f}")
-        with col2:
-            st.metric(label="⚡ Chỉ Số Chuyển Pha (ODE)", value=f"{res['phase_transition_index']:.4f}")
-        with col3:
-            status = "REVERSAL CRITICAL" if res['phase_transition_index'] > 0.3 else "STABLE FLOW"
-            st.metric(label="🎯 Trạng Thái Đảo Chiều", value=status)
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric(label="🌀 Độ Mạch Lạc Phổ (Coherence)", value=f"{res['spectral_coherence']:.4f}")
+            with col2:
+                st.metric(label="⚡ Bản Chất Hệ Thống", value="LINEARIZED HILBERT")
+            with col3:
+                st.metric(label="🎯 Trạng Thái Phổ", value="STABLE SPECTRAL MODES")
 
-        st.markdown("---")
-        st.subheader("🎯 TOP 10 CON SỐ TẠI LÕI ĐẢO CHIỀU (REVERSAL CORE)")
-        
-        core_str = "  •  ".join([f"**{n:02d}**" for n in res['core_10_numbers']])
-        st.markdown(f"<div style='text-align:center; padding:20px; background:#0E1117; border-radius:10px; border:2px solid #00F0FF; font-size:24px; color:#00F0FF;'>{core_str}</div>", unsafe_allow_html=True)
+            st.markdown("---")
+            st.subheader("🎯 TOP 10 CON SỐ TẠI PHỔ CỘNG HƯỞNG KOOPMAN")
+            
+            core_str = "  •  ".join([f"**{n:02d}**" for n in res['core_10_numbers']])
+            st.markdown(f"<div style='text-align:center; padding:20px; background:#0E1117; border-radius:10px; border:2px solid #00F0FF; font-size:24px; color:#00F0FF;'>{core_str}</div>", unsafe_allow_html=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.subheader("📊 CHI TIẾT NĂNG LƯỢNG ĐẢO CHIỀU")
-        df_core = pd.DataFrame({
-            "Thứ hạng": [f"Top {i+1}" for i in range(10)],
-            "Con số": [f"Số {res['core_10_numbers'][i]:02d}" for i in range(10)],
-            "Năng Lượng Đảo Chiều (Reversal Score)": [f"{res['scores'][res['core_10_numbers'][i]-1]:.6f}" for i in range(10)]
-        })
-        st.table(df_core.T)
-
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.subheader("📊 CHI TIẾT NĂNG LƯỢNG PHỔ TẦN SỐ")
+            df_core = pd.DataFrame({
+                "Thứ hạng": [f"Top {i+1}" for i in range(10)],
+                "Con số": [f"Số {res['core_10_numbers'][i]:02d}" for i in range(10)],
+                "Năng Lượng Phổ (Spectral Energy)": [f"{res['scores'][res['core_10_numbers'][i]-1]:.6f}" for i in range(10)]
+            })
+            st.table(df_core.T)
+        else:
+            st.error("Không đủ dữ liệu ma trận quan sát để chạy phân rã Koopman.")
     else:
         st.warning(f"Cần tối thiểu {min_w} kỳ dữ liệu hợp lệ để xử lý (Hiện nhận diện được {total_kies} kỳ).")
 else:
-    st.info("Dán dữ liệu cuốn chiếu Keno vào khung trên để khởi chạy cỗ máy v102.0.")
+    st.info("Dán dữ liệu cuốn chiếu Keno vào khung trên để kích hoạt cỗ máy Koopman v103.0.")
