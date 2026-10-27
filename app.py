@@ -2,12 +2,11 @@ import re
 import numpy as np
 import pandas as pd
 import streamlit as st
-from scipy.spatial.distance import pdist, squareform
 
 st.set_page_config(page_title="MDM-IDS v100.0 Meta-Geometric Engine", layout="wide")
 
 # ==============================================================================
-# UNIFIED META-GEOMETRIC CORE ENGINE (3 TẦNG TOÁN HỌC)
+# UNIFIED META-GEOMETRIC CORE ENGINE (3 TẦNG TOÁN HỌC - PURE NUMPY)
 # ==============================================================================
 class UnifiedKenoMetaEngine:
     def __init__(self, n_numbers=80):
@@ -45,10 +44,13 @@ class UnifiedKenoMetaEngine:
         point_cloud = np.array(point_cloud)
 
         # ----------------------------------------------------------------------
-        # TẦNG 2: PERSISTENT HOMOLOGY (Tôpô Đại số & Filter Nhiễu)
+        # TẦNG 2: PERSISTENT HOMOLOGY (Tôpô Đại số & Filter Nhiễu - Pure NumPy)
         # ----------------------------------------------------------------------
         if len(point_cloud) >= 2:
-            dist_mat = squareform(pdist(point_cloud))
+            # Tính ma trận khoảng cách Euclid hoàn toàn bằng NumPy (thay thế scipy)
+            sum_sq = np.sum(point_cloud**2, axis=1, keepdims=True)
+            dist_mat = np.sqrt(np.maximum(sum_sq + sum_sq.T - 2.0 * np.dot(point_cloud, point_cloud.T), 0.0))
+            
             thresholds = np.linspace(0.1, 1.5, 10)
             ranks = [np.linalg.matrix_rank((dist_mat <= eps).astype(int)) for eps in thresholds]
             topological_persistence = float(np.std(ranks))
@@ -64,10 +66,9 @@ class UnifiedKenoMetaEngine:
         else:
             latent = latent[:16]
 
-        np.random.seed(42) # Giữ trọng số trường vector ổn định
+        np.random.seed(42)
         weights = np.random.randn(16, 16) * 0.1
         
-        # Tích hợp dòng chảy Euler liên tục dh/dt
         state = latent.copy()
         velocities = []
         for _ in range(5):
@@ -84,7 +85,6 @@ class UnifiedKenoMetaEngine:
         recent_act = matrix[-min(5, T):].sum(axis=0)
         
         for i in range(D):
-            # Kết hợp điểm Tôpô + Gia tốc dòng chảy ODE
             freq_factor = 1.6 if recent_act[i] in [1, 2] else 0.4
             penalty = 0.2 if matrix[-1, i] == 1.0 else 1.0
             scores[i] = (topological_persistence + phase_transition_index) * freq_factor * penalty
@@ -127,7 +127,6 @@ if raw_input.strip():
         st.success(f"⚡ Đã quét và tích hợp thành công dữ liệu qua 3 tầng Meta-Geometric trên {total_kies} kỳ!")
         st.markdown("---")
 
-        # THỐNG KÊ M TRUNG TÂM
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric(
