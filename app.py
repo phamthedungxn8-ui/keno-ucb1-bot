@@ -3,14 +3,14 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="MDM-IDS v105.0: Sheaf Cohomology & Phase Entanglement", layout="wide")
+st.set_page_config(page_title="MDM-IDS v106.0: Multi-Structural Cohomology", layout="wide")
 
-class Top5CohomologyEngine:
+class MultiStructuralCohomologyEngine:
     def __init__(self, n_numbers=80):
         self.D = n_numbers
 
     def parse_data(self, raw_text: str, min_kies=6, max_kies=25):
-        """Tối ưu hóa dữ liệu nhập tay: Hỗ trợ từ 6 kỳ trở lên để tính toán Cohomology."""
+        """Lọc sạch dữ liệu nhập tay và lập ma trận nhị phân theo thời gian."""
         cleaned_data = re.sub(r'(?:Kì|Kỳ)\s*\d+[:\s]*', '\n', raw_text.strip(), flags=re.IGNORECASE)
         all_numbers = [int(n) for n in re.findall(r'\b\d{1,2}\b', cleaned_data) if 1 <= int(n) <= self.D]
         total_kies = len(all_numbers) // 20
@@ -29,7 +29,7 @@ class Top5CohomologyEngine:
         return matrix, kies_to_use
 
     def compute_patch_ncg(self, patch_matrix: np.ndarray):
-        """Tính toán năng lượng giao hoạn tử NCG [A, B] cho từng patch cục bộ."""
+        """Tính toán năng lượng giao hoạn tử NCG [A, B] trên từng patch."""
         T, D = patch_matrix.shape
         if T < 2:
             return np.zeros(D)
@@ -46,14 +46,12 @@ class Top5CohomologyEngine:
             
         return commutator_energy
 
-    def execute_top5_cohomology(self, matrix: np.ndarray, patch_size=5):
+    def execute_multi_structural_analysis(self, matrix: np.ndarray, patch_size=5):
         """
-        Tầng Sheaf Cohomology & Phase Entanglement: 
-        Đo lường sai số Coboundary giữa các patch cục bộ để lọc bỏ nhiễu 
-        và tìm ra các dòng chảy pha bền vững nhất.
+        Phân rã đa cấu trúc: Chia không gian thành các phân thớ đầu số (Decade Fibers),
+        tính toán Sheaf Cohomology và trích xuất điểm sáng từ mỗi cấu trúc.
         """
         T, D = matrix.shape
-        
         patches = []
         for start in range(T - patch_size + 1):
             patch = matrix[start : start + patch_size]
@@ -62,92 +60,101 @@ class Top5CohomologyEngine:
         if not patches:
             patches = [matrix]
 
-        # Thu thập năng lượng từ toàn bộ các patch cục bộ
         patch_energies = []
         for patch in patches:
             patch_energies.append(self.compute_patch_ncg(patch))
-        patch_energies = np.array(patch_energies) # Shape: (Num_patches, D)
+        patch_energies = np.array(patch_energies)
 
-        # 1. Tính giá trị trung bình toàn cục (Global Section)
         global_mean = np.mean(patch_energies, axis=0)
-        
-        # 2. Tính sai số Cohomology (Coboundary Variance): Độ lệch năng lượng giữa các patch
         cohomology_error = np.std(patch_energies, axis=0)
+        phase_scores = global_mean / (1.0 + cohomology_error)
+
+        # Định nghĩa các phân thớ cấu trúc (Đầu số: 01-10, 11-20, ..., 71-80)
+        structure_groups = {
+            f"Đầu {i} ({(i*10)+1:02d}-{(i+1)*10:02d})": list(range(i * 10, (i + 1) * 10))
+            for i in range(8)
+        }
+
+        selected_cores = []
+        structural_breakdown = []
+
+        for group_name, indices in structure_groups.items():
+            # Trích xuất điểm số của các số trong phân thớ hiện tại
+            group_scores = {idx + 1: phase_scores[idx] for idx in indices}
+            # Sắp xếp lấy Top 2 số ưu tú nhất từ mỗi cấu trúc đầu số
+            sorted_group = sorted(group_scores.items(), key=lambda x: x[1], reverse=True)
+            top_2_in_group = sorted_group[:2]
+            
+            for num, score in top_2_in_group:
+                selected_cores.append((num, score, group_name))
+            
+            structural_breakdown.append({
+                "Cấu trúc": group_name,
+                "Top số đề xuất": f"{sorted_group[0][0]:02d}, {sorted_group[1][0]:02d}",
+                "Năng lượng trung bình": float(np.mean([s for _, s in sorted_group[:2]]))
+            })
+
+        # Sắp xếp lại toàn bộ tập hợp đã trích xuất từ các cấu trúc theo năng lượng liên thông pha
+        selected_cores = sorted(selected_cores, key=lambda x: x[1], reverse=True)
         
-        # 3. Điểm số tích hợp: Năng lượng cao nhưng sai số cấu trúc phải tối thiểu
-        phase_entanglement_score = global_mean / (1.0 + cohomology_error)
-
-        # Bộ lọc kháng quán tính nghiêm ngặt cho tập siêu hẹp Top 5
-        recent_act = matrix[-min(3, T):].sum(axis=0)
-        final_scores = np.zeros(D)
-
-        for i in range(D):
-            penalty = 0.05 if recent_act[i] >= 2 else 1.0
-            final_scores[i] = phase_entanglement_score[i] * penalty
-
-        ranked_indices = np.argsort(final_scores)[::-1]
-        
-        # Trích xuất chính xác Top 5 con số tối ưu tại biên Cohomology
-        core_5_numbers = [idx + 1 for idx in ranked_indices[:5]]
-        entanglement_index = float(np.mean(phase_entanglement_score))
+        # Lọc lấy tập siêu hẹp Top 5 đại diện cho toàn bộ các cấu trúc
+        final_top_5 = [item[0] for item in selected_cores[:5]]
+        entanglement_index = float(np.mean(phase_scores))
 
         return {
             "entanglement_index": entanglement_index,
-            "core_5_numbers": core_5_numbers,
-            "scores": final_scores
+            "final_top_5": final_top_5,
+            "structural_breakdown": structural_breakdown,
+            "scores": phase_scores
         }
 
 # ==============================================================================
 # GIAO DIỆN STREAMLIT
 # ==============================================================================
-st.title("🌌 MDM-IDS v105.0: COHOMOLOGY & ENTANGLEMENT")
-st.caption("Đối ngẫu Sheaf Cohomology • Liên thông pha • Trích xuất Top 5 con số tối ưu")
+st.title("🌌 MDM-IDS v106.0: MULTI-STRUCTURAL COHOMOLOGY")
+st.caption("Phân rã đa cấu trúc đầu số • Đối ngẫu Sheaf Cohomology • Tối ưu hóa bậc cao")
 
 with st.sidebar:
-    st.header("⚙️ Cấu Hình Nâng Cao v105.0")
-    min_w = st.slider("Số kỳ tối thiểu:", 6, 12, 6)
-    patch_w = st.slider("Kích thước Local Patch:", 3, 6, 5)
+    st.header("⚙️ Cấu Hình Không Gian Bậc Cao")
+    min_w = st.slider("Số kỳ tối thiểu (Bậc):", 6, 15, 7)
+    patch_w = st.slider("Kích thước Local Patch:", 3, 8, 5)
 
 raw_input = st.text_area(
-    "Dán thủ công dữ liệu Keno (Hỗ trợ từ 6 kỳ trở lên):",
+    "Dán thủ công dữ liệu Keno (Hỗ trợ từ 6-15 kỳ):",
     placeholder="Ví dụ:\nKỳ 1: 06 11 13 18 21 22 25 31 43 44 45 46 53 54 55 64 65 68 76 77\nKỳ 2: ...",
     height=200
 )
 
 if raw_input.strip():
-    engine = Top5CohomologyEngine()
+    engine = MultiStructuralCohomologyEngine()
     matrix, total_kies = engine.parse_data(raw_input, min_kies=min_w)
 
     if matrix is not None:
-        res = engine.execute_top5_cohomology(matrix, patch_size=patch_w)
+        res = engine.execute_multi_structural_analysis(matrix, patch_size=patch_w)
 
-        st.success(f"⚡ Đã giải mã đối ngẫu Cohomology thành công trên {total_kies} kỳ dữ liệu!")
+        st.success(f"⚡ Đã bóc tách cấu trúc và liên thông pha thành công trên {total_kies} kỳ dữ liệu!")
         st.markdown("---")
 
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric(label="🌀 Chỉ Số Liên Thông Pha", value=f"{res['entanglement_index']:.4f}")
         with col2:
-            st.metric(label="⚡ Cấu Trúc Đối Ngẫu", value="COHOMOLOGY RESOLVED")
+            st.metric(label="⚡ Phân Thớ Cấu Trúc", value="8 GROUPS RESOLVED")
         with col3:
-            st.metric(label="🎯 Tập Giá Trị Lõi", value="TOP 5 CORES")
+            st.metric(label="🎯 Tập Giá Trị Lõi", value="TOP 5 MULTI-CORE")
 
         st.markdown("---")
-        st.subheader("🎯 TOP 5 CON SỐ TỐI ƯU (PHASE ENTANGLEMENT CORE)")
+        st.subheader("🎯 TOP 5 CON SỐ TỐI ƯU (TỔNG HỢP ĐA CẤU TRÚC)")
         
-        core_str = "  •  ".join([f"**{n:02d}**" for n in res['core_5_numbers']])
+        core_str = "  •  ".join([f"**{n:02d}**" for n in res['final_top_5']])
         st.markdown(f"<div style='text-align:center; padding:25px; background:#0E1117; border-radius:10px; border:2px solid #00F0FF; font-size:28px; color:#00F0FF;'>{core_str}</div>", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.subheader("📊 CHI TIẾT NĂNG LƯỢNG LIÊN THÔNG PHA")
-        df_core = pd.DataFrame({
-            "Thứ hạng": [f"Top {i+1}" for i in range(5)],
-            "Con số": [f"Số {res['core_5_numbers'][i]:02d}" for i in range(5)],
-            "Năng Lượng Liên Thông (Score)": [f"{res['scores'][res['core_5_numbers'][i]-1]:.6f}" for i in range(5)]
-        })
-        st.table(df_core.T)
+        st.subheader("📊 CHI TIẾT PHÂN RÃ THEO PHÂN THỚ ĐẦU SỐ")
+        df_struct = pd.DataFrame(res['structural_breakdown'])
+        st.table(df_struct)
 
     else:
-        st.warning(f"Cần tối thiểu {min_w} kỳ dữ liệu hợp lệ để tính toán Cohomology (Hệ thống ghi nhận được {total_kies} kỳ).")
+        st.warning(f"Cần tối thiểu {min_w} kỳ dữ liệu hợp lệ để chạy phân rã đa cấu trúc (Hệ thống ghi nhận được {total_kies} kỳ).")
 else:
-    st.info("Nhập tay dữ liệu Keno vào khung trên để khởi chạy cỗ máy v105.0.")
+    st.info("Nhập tay dữ liệu Keno vào khung trên để khởi chạy cỗ máy v106.0.")
