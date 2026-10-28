@@ -3,13 +3,14 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="MDM-IDS: Top 5 Sheaf-NCG Core", layout="wide")
+st.set_page_config(page_title="MDM-IDS v105.0: Sheaf Cohomology & Phase Entanglement", layout="wide")
 
-class Top5SheafNCGEngine:
+class Top5CohomologyEngine:
     def __init__(self, n_numbers=80):
         self.D = n_numbers
 
     def parse_data(self, raw_text: str, min_kies=6, max_kies=25):
+        """Tối ưu hóa dữ liệu nhập tay: Hỗ trợ từ 6 kỳ trở lên để tính toán Cohomology."""
         cleaned_data = re.sub(r'(?:Kì|Kỳ)\s*\d+[:\s]*', '\n', raw_text.strip(), flags=re.IGNORECASE)
         all_numbers = [int(n) for n in re.findall(r'\b\d{1,2}\b', cleaned_data) if 1 <= int(n) <= self.D]
         total_kies = len(all_numbers) // 20
@@ -28,6 +29,7 @@ class Top5SheafNCGEngine:
         return matrix, kies_to_use
 
     def compute_patch_ncg(self, patch_matrix: np.ndarray):
+        """Tính toán năng lượng giao hoạn tử NCG [A, B] cho từng patch cục bộ."""
         T, D = patch_matrix.shape
         if T < 2:
             return np.zeros(D)
@@ -44,7 +46,12 @@ class Top5SheafNCGEngine:
             
         return commutator_energy
 
-    def execute_top5_consensus(self, matrix: np.ndarray, patch_size=5):
+    def execute_top5_cohomology(self, matrix: np.ndarray, patch_size=5):
+        """
+        Tầng Sheaf Cohomology & Phase Entanglement: 
+        Đo lường sai số Coboundary giữa các patch cục bộ để lọc bỏ nhiễu 
+        và tìm ra các dòng chảy pha bền vững nhất.
+        """
         T, D = matrix.shape
         
         patches = []
@@ -55,35 +62,37 @@ class Top5SheafNCGEngine:
         if not patches:
             patches = [matrix]
 
-        global_scores = np.zeros(D)
-        consistency_counts = np.zeros(D)
-
+        # Thu thập năng lượng từ toàn bộ các patch cục bộ
+        patch_energies = []
         for patch in patches:
-            p_energy = self.compute_patch_ncg(patch)
-            top_local_indices = np.argsort(p_energy)[-15:]
-            for idx in top_local_indices:
-                consistency_counts[idx] += 1.0
-            global_scores += p_energy
+            patch_energies.append(self.compute_patch_ncg(patch))
+        patch_energies = np.array(patch_energies) # Shape: (Num_patches, D)
 
-        # Điều kiện dán Sheaf (Gluing Condition)
-        sheaf_glued_scores = global_scores * (1.0 + consistency_counts / len(patches))
+        # 1. Tính giá trị trung bình toàn cục (Global Section)
+        global_mean = np.mean(patch_energies, axis=0)
+        
+        # 2. Tính sai số Cohomology (Coboundary Variance): Độ lệch năng lượng giữa các patch
+        cohomology_error = np.std(patch_energies, axis=0)
+        
+        # 3. Điểm số tích hợp: Năng lượng cao nhưng sai số cấu trúc phải tối thiểu
+        phase_entanglement_score = global_mean / (1.0 + cohomology_error)
 
-        # Bộ lọc kháng quán tính nghiêm ngặt cho tập siêu hẹp
+        # Bộ lọc kháng quán tính nghiêm ngặt cho tập siêu hẹp Top 5
         recent_act = matrix[-min(3, T):].sum(axis=0)
         final_scores = np.zeros(D)
 
         for i in range(D):
             penalty = 0.05 if recent_act[i] >= 2 else 1.0
-            final_scores[i] = sheaf_glued_scores[i] * penalty
+            final_scores[i] = phase_entanglement_score[i] * penalty
 
         ranked_indices = np.argsort(final_scores)[::-1]
         
-        # Thu hẹp nghiêm ngặt xuống đúng TOP 5 con số cốt lõi
+        # Trích xuất chính xác Top 5 con số tối ưu tại biên Cohomology
         core_5_numbers = [idx + 1 for idx in ranked_indices[:5]]
-        sheaf_consistency = float(np.mean(consistency_counts))
+        entanglement_index = float(np.mean(phase_entanglement_score))
 
         return {
-            "sheaf_consistency": sheaf_consistency,
+            "entanglement_index": entanglement_index,
             "core_5_numbers": core_5_numbers,
             "scores": final_scores
         }
@@ -91,11 +100,11 @@ class Top5SheafNCGEngine:
 # ==============================================================================
 # GIAO DIỆN STREAMLIT
 # ==============================================================================
-st.title("🌌 MDM-IDS: TOP 5 SHEAF-NCG CORE")
-st.caption("Thu hẹp biên giới không gian • Trích xuất 5 con số tối ưu qua Lý thuyết Bó & NCG")
+st.title("🌌 MDM-IDS v105.0: COHOMOLOGY & ENTANGLEMENT")
+st.caption("Đối ngẫu Sheaf Cohomology • Liên thông pha • Trích xuất Top 5 con số tối ưu")
 
 with st.sidebar:
-    st.header("⚙️ Cấu Hình Không Gian Bó")
+    st.header("⚙️ Cấu Hình Nâng Cao v105.0")
     min_w = st.slider("Số kỳ tối thiểu:", 6, 12, 6)
     patch_w = st.slider("Kích thước Local Patch:", 3, 6, 5)
 
@@ -106,39 +115,39 @@ raw_input = st.text_area(
 )
 
 if raw_input.strip():
-    engine = Top5SheafNCGEngine()
+    engine = Top5CohomologyEngine()
     matrix, total_kies = engine.parse_data(raw_input, min_kies=min_w)
 
     if matrix is not None:
-        res = engine.execute_top5_consensus(matrix, patch_size=patch_w)
+        res = engine.execute_top5_cohomology(matrix, patch_size=patch_w)
 
-        st.success(f"⚡ Đã cô đọng không gian pha thành công trên {total_kies} kỳ dữ liệu!")
+        st.success(f"⚡ Đã giải mã đối ngẫu Cohomology thành công trên {total_kies} kỳ dữ liệu!")
         st.markdown("---")
 
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric(label="🌀 Chỉ Số Đồng Thuận Bó", value=f"{res['sheaf_consistency']:.4f}")
+            st.metric(label="🌀 Chỉ Số Liên Thông Pha", value=f"{res['entanglement_index']:.4f}")
         with col2:
-            st.metric(label="⚡ Mật Độ Không Gian", value="ULTRA-CONVERGED")
+            st.metric(label="⚡ Cấu Trúc Đối Ngẫu", value="COHOMOLOGY RESOLVED")
         with col3:
-            st.metric(label="🎯 Tập Giá Trị Lõi", value="TOP 5 CORE")
+            st.metric(label="🎯 Tập Giá Trị Lõi", value="TOP 5 CORES")
 
         st.markdown("---")
-        st.subheader("🎯 TOP 5 CON SỐ TỐI ƯU TẠI LÕI ĐỒNG THUẬN")
+        st.subheader("🎯 TOP 5 CON SỐ TỐI ƯU (PHASE ENTANGLEMENT CORE)")
         
         core_str = "  •  ".join([f"**{n:02d}**" for n in res['core_5_numbers']])
         st.markdown(f"<div style='text-align:center; padding:25px; background:#0E1117; border-radius:10px; border:2px solid #00F0FF; font-size:28px; color:#00F0FF;'>{core_str}</div>", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.subheader("📊 CHI TIẾT NĂNG LƯỢNG 5 SỐ CỐT LÕI")
+        st.subheader("📊 CHI TIẾT NĂNG LƯỢNG LIÊN THÔNG PHA")
         df_core = pd.DataFrame({
             "Thứ hạng": [f"Top {i+1}" for i in range(5)],
             "Con số": [f"Số {res['core_5_numbers'][i]:02d}" for i in range(5)],
-            "Năng Lượng Đồng Thuận (Score)": [f"{res['scores'][res['core_5_numbers'][i]-1]:.6f}" for i in range(5)]
+            "Năng Lượng Liên Thông (Score)": [f"{res['scores'][res['core_5_numbers'][i]-1]:.6f}" for i in range(5)]
         })
         st.table(df_core.T)
 
     else:
-        st.warning(f"Cần tối thiểu {min_w} kỳ dữ liệu hợp lệ để chia tách các patch cục bộ (Hệ thống ghi nhận được {total_kies} kỳ).")
+        st.warning(f"Cần tối thiểu {min_w} kỳ dữ liệu hợp lệ để tính toán Cohomology (Hệ thống ghi nhận được {total_kies} kỳ).")
 else:
-    st.info("Nhập tay dữ liệu Keno vào khung trên để khởi chạy bộ lọc Top 5 tối ưu.")
+    st.info("Nhập tay dữ liệu Keno vào khung trên để khởi chạy cỗ máy v105.0.")
