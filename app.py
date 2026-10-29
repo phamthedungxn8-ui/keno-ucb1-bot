@@ -3,14 +3,14 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="MDM-IDS v108.0: Evolutionary Auto-Optimizer", layout="wide")
+st.set_page_config(page_title="MDM-IDS v109.0: Forward-Backward Smoothing", layout="wide")
 
-class EvolutionaryStructuralEngine:
+class ForwardBackwardSmoothingEngine:
     def __init__(self, n_numbers=80):
         self.D = n_numbers
 
     def parse_data(self, raw_text: str, min_kies=7, max_kies=25):
-        """Lọc dữ liệu nhập tay và chuyển đổi thành ma trận nhị phân không gian thời gian."""
+        """Lọc dữ liệu nhập tay và lập ma trận nhị phân không gian thời gian."""
         cleaned_data = re.sub(r'(?:Kì|Kỳ)\s*\d+[:\s]*', '\n', raw_text.strip(), flags=re.IGNORECASE)
         all_numbers = [int(n) for n in re.findall(r'\b\d{1,2}\b', cleaned_data) if 1 <= int(n) <= self.D]
         total_kies = len(all_numbers) // 20
@@ -46,44 +46,43 @@ class EvolutionaryStructuralEngine:
             
         return commutator_energy
 
-    def run_evolutionary_optimization(self, matrix: np.ndarray):
+    def execute_smoothing_analysis(self, matrix: np.ndarray, patch_size=5):
         """
-        Thuật toán tiến hóa thử-sai tự động: Quét qua các kích thước patch (từ 3 đến 6) 
-        và trọng số phạt quán tính để tìm ra không gian cộng hưởng bền vững nhất.
+        Thuật toán Quét xuôi kết hợp Quét ngược (Forward-Backward Smoothing):
+        - Forward Pass: Đo lường xung lượng năng lượng NCG dọc theo lịch sử.
+        - Backward Pass: Chiếu ngược từ kỳ hiện tại (mới nhất) để hiệu chỉnh độ trễ pha.
         """
         T, D = matrix.shape
-        best_score = -float('inf')
-        best_results = None
-        best_params = {"patch": 4, "penalty_factor": 0.05}
+        patches = [matrix[start : start + patch_size] for start in range(T - patch_size + 1)]
+        if not patches:
+            patches = [matrix]
 
-        # Vòng lặp tiến hóa thử nghiệm các tham số cấu trúc
-        for p_size in range(3, min(7, T)):
-            patches = [matrix[start : start + p_size] for start in range(T - p_size + 1)]
-            if not patches:
-                continue
+        # 1. FORWARD PASS: Thu thập năng lượng và sai số Cohomology xuôi chiều
+        forward_energies = np.array([self.compute_patch_ncg(p) for p in patches])
+        fwd_mean = np.mean(forward_energies, axis=0)
+        fwd_std = np.std(forward_energies, axis=0)
+        forward_scores = fwd_mean / (1.0 + fwd_std)
 
-            patch_energies = np.array([self.compute_patch_ncg(p) for p in patches])
-            global_mean = np.mean(patch_energies, axis=0)
-            cohomology_error = np.std(patch_energies, axis=0)
-            
-            # Thử nghiệm các hệ số phạt quán tính khác nhau trong quá trình tiến hóa
-            for pen in [0.01, 0.05, 0.1, 0.2]:
-                recent_act = matrix[-min(3, T):].sum(axis=0)
-                final_scores = np.zeros(D)
-                
-                phase_scores = global_mean / (1.0 + cohomology_error)
-                for i in range(D):
-                    penalty = pen if recent_act[i] >= 2 else 1.0
-                    final_scores[i] = phase_scores[i] * penalty
+        # 2. BACKWARD PASS (Smoothing): Đảo ngược ma trận thời gian để quét ngược từ hiện tại về quá khứ
+        reversed_matrix = matrix[::-1]
+        rev_patches = [reversed_matrix[start : start + patch_size] for start in range(T - patch_size + 1)]
+        backward_energies = np.array([self.compute_patch_ncg(p) for p in rev_patches])
+        bwd_mean = np.mean(backward_energies, axis=0)
+        bwd_std = np.std(backward_energies, axis=0)
+        backward_scores = bwd_mean / (1.0 + bwd_std)
 
-                # Đánh giá độ thích nghi (Fitness Score) của cấu trúc
-                fitness = float(np.mean(np.sort(final_scores)[-5:]))
-                if fitness > best_score:
-                    best_score = fitness
-                    best_params = {"patch": p_size, "penalty_factor": pen}
-                    best_results = final_scores
+        # 3. KẾT HỢP HAI CHIỀU (Dual-Pass Fusion): Tổng hòa năng lượng xuôi và ngược để triệt tiêu độ trễ pha
+        # Trọng số ưu tiên nhẹ cho chiều Backward vì sát với thực tế hiện tại nhất
+        smoothed_scores = (0.4 * forward_scores) + (0.6 * backward_scores)
 
-        # Phân rã 8 phân thớ cấu trúc đầu số dựa trên thông số tối ưu nhất
+        # Bộ lọc biên giới kỳ gần nhất (Boundary Constraint)
+        recent_act = matrix[-min(3, T):].sum(axis=0)
+        final_scores = np.zeros(D)
+        for i in range(D):
+            penalty = 0.05 if recent_act[i] >= 2 else 1.0
+            final_scores[i] = smoothed_scores[i] * penalty
+
+        # Phân rã cấu trúc thành 8 phân thớ đầu số để chọn 2 số chủ lực mỗi nhóm
         structure_groups = {
             f"Đầu {i} ({(i*10)+1:02d}-{(i+1)*10:02d})": list(range(i * 10, (i + 1) * 10))
             for i in range(8)
@@ -93,7 +92,7 @@ class EvolutionaryStructuralEngine:
         structural_breakdown = []
 
         for group_name, indices in structure_groups.items():
-            group_scores = {idx + 1: best_results[idx] for idx in indices}
+            group_scores = {idx + 1: final_scores[idx] for idx in indices}
             sorted_group = sorted(group_scores.items(), key=lambda x: x[1], reverse=True)
             top_2_in_group = sorted_group[:2]
             
@@ -103,30 +102,30 @@ class EvolutionaryStructuralEngine:
             structural_breakdown.append({
                 "Phân thớ cấu trúc": group_name,
                 "Top 2 số chủ lực": f"{sorted_group[0][0]:02d}, {sorted_group[1][0]:02d}",
-                "Năng lượng liên thông": round(float(np.mean([s for _, s in sorted_group[:2]])), 4)
+                "Năng lượng làm mượt": round(float(np.mean([s for _, s in sorted_group[:2]])), 4)
             })
 
         selected_cores = sorted(selected_cores, key=lambda x: x[1], reverse=True)
         final_top_5 = [item[0] for item in selected_cores[:5]]
+        smooth_index = float(np.mean(final_scores))
 
         return {
-            "best_params": best_params,
-            "fitness_score": best_score,
+            "smooth_index": smooth_index,
             "final_top_5": final_top_5,
             "structural_breakdown": structural_breakdown,
-            "scores": best_results
+            "scores": final_scores
         }
 
 # ==============================================================================
 # GIAO DIỆN STREAMLIT
 # ==============================================================================
-st.title("🌌 MDM-IDS v108.0: EVOLUTIONARY AUTO-OPTIMIZER")
-st.caption("Thuật toán tiến hóa tự động thử-sai • Tối ưu hóa đa cấu trúc bậc cao")
+st.title("🌌 MDM-IDS v109.0: FORWARD-BACKWARD SMOOTHING")
+st.caption("Bộ lọc làm mượt hai chiều • Truy xuất ngược thời gian • Triệt tiêu độ trễ pha")
 
 with st.sidebar:
-    st.header("⚙️ Cấu Hình Tiến Hoá AI")
+    st.header("⚙️ Cấu Hình Bộ Lọc Làm Mượt")
     target_order = st.slider("Số kỳ phân tích (Bậc T):", 7, 15, 8)
-    st.info("Hệ thống sẽ tự động quét và tối ưu hóa trọng số pha mà không cần điều chỉnh thủ công.")
+    patch_w = st.slider("Kích thước Local Patch:", 3, 6, 4)
 
 raw_input = st.text_area(
     f"Dán thủ công dữ liệu Keno (Yêu cầu tối thiểu {target_order} kỳ):",
@@ -135,36 +134,35 @@ raw_input = st.text_area(
 )
 
 if raw_input.strip():
-    engine = EvolutionaryStructuralEngine()
+    engine = ForwardBackwardSmoothingEngine()
     matrix, total_kies = engine.parse_data(raw_input, min_kies=target_order)
 
     if matrix is not None:
-        # Kích hoạt quá trình tiến hóa tự động
-        res = engine.run_evolutionary_optimization(matrix)
+        res = engine.execute_smoothing_analysis(matrix, patch_size=patch_w)
 
-        st.success(f"🧬 Quá trình tiến hóa AI đã hoàn tất trên {total_kies} kỳ! (Patch tối ưu: {res['best_params']['patch']}, Phạt quán tính: {res['best_params']['penalty_factor']})")
+        st.success(f"⚡ Đã hoàn tất quy trình Quét xuôi & Quét ngược trên {total_kies} kỳ dữ liệu!")
         st.markdown("---")
 
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric(label="🌀 Chỉ Số Thích Nghi (Fitness)", value=f"{res['fitness_score']:.4f}")
+            st.metric(label="🌀 Chỉ Số Làm Mượt (Smooth)", value=f"{res['smooth_index']:.4f}")
         with col2:
-            st.metric(label="⚡ Trạng Thái Tiến Hóa", value="OPTIMIZED CORES")
+            st.metric(label="⚡ Trạng Thái Lọc", value="DUAL-PASS OPTIMIZED")
         with col3:
-            st.metric(label="🎯 Tập Giá Trị Lõi", value="TOP 5 EVOLVED")
+            st.metric(label="🎯 Tập Giá Trị Lõi", value="TOP 5 SMOOTHED")
 
         st.markdown("---")
-        st.subheader("🎯 TOP 5 CON SỐ TỐI ƯU SAU KHI TIẾN HÓA")
+        st.subheader("🎯 TOP 5 CON SỐ TỐI ƯU (SAU KHI LÀM MƯỢT HAI CHIỀU)")
         
         core_str = "  •  ".join([f"**{n:02d}**" for n in res['final_top_5']])
         st.markdown(f"<div style='text-align:center; padding:25px; background:#0E1117; border-radius:10px; border:2px solid #00F0FF; font-size:28px; color:#00F0FF;'>{core_str}</div>", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.subheader("📊 CHI TIẾT PHÂN RÃ CÁC PHÂN THỚ SAU KHI TỰ ĐIỀU CHỈNH")
+        st.subheader("📊 CHI TIẾT PHÂN RÃ CÁC PHÂN THỚ SAU KHI LÀM MƯỢT")
         df_struct = pd.DataFrame(res['structural_breakdown'])
         st.table(df_struct)
 
     else:
-        st.warning(f"Cần tối thiểu {target_order} kỳ dữ liệu để chạy thuật toán tiến hóa (Hệ thống ghi nhận được {total_kies} kỳ).")
+        st.warning(f"Cần tối thiểu {target_order} kỳ dữ liệu để chạy bộ lọc hai chiều (Hệ thống ghi nhận được {total_kies} kỳ).")
 else:
-    st.info("Nhập tay dữ liệu Keno từ 7 kỳ trở lên vào khung trên để cỗ máy tiến hóa tự động vận hành.")
+    st.info("Nhập tay dữ liệu Keno từ 7 kỳ trở lên vào khung trên để khởi chạy cỗ máy v109.0.")
