@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 # =====================================================================
-# CẤU HÌNH TRANG STREAMLIT (TỐI ƯU GIAO DIỆN DI ĐỘNG)
+# CẤU HÌNH GIAO DIỆN TỐI ƯU CHO MOBILE
 # =====================================================================
 st.set_page_config(
     page_title="Keno Quantitative Engine",
@@ -13,21 +13,31 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    .stMetric {
-        background-color: #1f2937;
-        padding: 10px;
-        border-radius: 8px;
-        border: 1px solid #374151;
+    .main-card {
+        background-color: #1e293b;
+        padding: 16px;
+        border-radius: 12px;
+        border: 1px solid #334155;
+        text-align: center;
+        margin-bottom: 10px;
+    }
+    .number-highlight {
+        font-size: 32px;
+        font-weight: bold;
+        color: #38bdf8;
+    }
+    .metric-text {
+        font-size: 13px;
+        color: #94a3b8;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# LỚP MÔ HÌNH TOÁN HỌC (MODULE 1, 2, 3)
+# LỚP MÔ HÌNH TOÁN HỌC (EKF & LOCAL NON-ERGODICITY)
 # =====================================================================
 class KenoQuantitativeEngine:
-    """Động cơ định lượng Keno: EKF + Local Non-Ergodicity Scanning"""
-    def __init__(self, num_numbers=80, window_size=5):
+    def __init__(self, num_numbers=80, window_size=3):
         self.num_numbers = num_numbers
         self.window_size = window_size
         
@@ -56,30 +66,28 @@ class KenoQuantitativeEngine:
                     matrix[idx, int(num) - 1] = 1
         
         prob_window = np.mean(matrix, axis=0)
-        delta_p = prob_window - 0.25  # P_0 = 0.25
+        delta_p = prob_window - 0.25  # P_0 lý thuyết = 0.25
         return delta_p
 
 # =====================================================================
-# GIAO DIỆN STREAMLIT & NHẬP LIỆU THỦ CÔNG
+# GIAO DIỆN CHÍNH
 # =====================================================================
-st.title("🎯 Keno Quantitative Engine")
-st.caption("Nhập dữ liệu thủ công và phân tích kẽ hở xác suất ngắn hạn")
+st.title("🎯 Keno Signal Engine")
+st.caption("Mô hình định lượng khai thác kẽ hở ngắn hạn (Short-term Non-ergodicity)")
 
 st.divider()
 
-# Khu vực nhập liệu thủ công
+# Nhập liệu thủ công (Mặc định 3 kỳ gần nhất đúng theo yêu cầu)
 st.subheader("📥 Nhập dữ liệu kỳ quay thủ công")
-st.markdown("Mỗi dòng tương ứng với kết quả 1 kỳ quay (các số cách nhau bằng dấu phẩy hoặc khoảng trắng, ví dụ: `1, 5, 12, ...`)")
+st.markdown("Mỗi dòng là một kỳ quay (các số cách nhau bằng dấu phẩy hoặc khoảng trắng):")
 
-# Mẫu mặc định để người dùng dễ hình dung định dạng nhập
-default_input = """1, 3, 5, 12, 15, 22, 28, 30, 35, 40, 45, 50, 55, 60, 65, 70, 72, 75, 78, 80
-2, 4, 6, 11, 16, 21, 29, 31, 36, 41, 46, 51, 56, 61, 66, 71, 73, 76, 79, 70
-3, 7, 9, 14, 18, 23, 27, 32, 37, 42, 47, 52, 57, 62, 67, 72, 74, 77, 68, 69
-4, 8, 10, 13, 17, 24, 26, 33, 38, 43, 48, 53, 58, 63, 68, 73, 75, 78, 64, 65"""
+default_input = """37, 51, 35, 56, 42, 57, 57, 59, 58, 58, 64, 59, 65, 66, 62, 66, 68, 68, 67, 72
+38, 53, 41, 56, 42, 57, 57, 58, 58, 59, 64, 59, 65, 66, 62, 66, 68, 68, 67, 72
+53, 56, 42, 57, 57, 58, 58, 59, 64, 59, 65, 66, 62, 66, 68, 68, 67, 72, 74, 77"""
 
-raw_text_input = st.text_area("Danh sách các kỳ quay (Dán dữ liệu của bạn vào đây):", value=default_input, height=160)
+raw_text_input = st.text_area("Danh sách các kỳ quay:", value=default_input, height=130)
 
-# Xử lý chuỗi văn bản do người dùng nhập thủ công thành ma trận số nguyên
+# Xử lý dữ liệu đầu vào
 history_draws = []
 for line in raw_text_input.strip().split("\n"):
     if line.strip():
@@ -90,15 +98,14 @@ for line in raw_text_input.strip().split("\n"):
         except ValueError:
             continue
 
-# Thanh trượt chọn cửa sổ ngắn hạn W
+# Cố định hoặc cho phép chọn cửa sổ trượt W = 3 (hoặc tùy biến theo số kỳ nhập)
 max_w = max(len(history_draws), 2)
-window_size = st.slider("Cửa sổ trượt ngắn hạn W (kỳ quay):", min_value=2, max_value=max_w, value=min(len(history_draws), 5))
+window_size = st.slider("Cửa sổ trượt ngắn hạn W (kỳ quay):", min_value=2, max_value=max_w, value=min(len(history_draws), 3))
 
 if len(history_draws) > 0:
-    # Khởi tạo động cơ định lượng với dữ liệu thực tế từ người dùng
+    # Khởi tạo và chạy thuật toán
     engine = KenoQuantitativeEngine(num_numbers=80, window_size=window_size)
 
-    # Chạy EKF qua từng kỳ quay
     for draw in history_draws:
         binary_vector = np.zeros(80)
         for num in draw:
@@ -106,27 +113,31 @@ if len(history_draws) > 0:
                 binary_vector[num - 1] = 1
         kalman_scores = engine.update_ekf(binary_vector)
 
-    # Phân tích độ lệch cục bộ Delta P
     delta_p = engine.analyze_local_non_ergodicity(history_draws)
 
-    # Lọc Top Cold Attractors (Vùng nén áp suất cao)
-    cold_indices = np.argsort(delta_p)[:min(6, len(delta_p))]
-    top_numbers = [idx + 1 for idx in cold_indices]
+    # Lọc lấy ĐÚNG 3 BỘ SỐ / 3 TÍN HIỆU TỐT NHẤT (Cold Attractors tiềm năng nhất)
+    cold_indices = np.argsort(delta_p)[:3]
+    top_3_numbers = [idx + 1 for idx in cold_indices]
 
     st.divider()
-    st.subheader("📍 Bộ số ưu tiên ngắn hạn (Cold Attractors)")
+    st.subheader("🔥 Top 3 Bộ số Khai thác Tối ưu (Kỳ T+1 & T+2)")
     
+    # Hiển thị trực quan 3 bộ số gợi ý chính dạng thẻ lớn
     col1, col2, col3 = st.columns(3)
-    cols = [col1, col2, col3, col1, col2, col3]
+    cols = [col1, col2, col3]
 
-    for i, num in enumerate(top_numbers):
+    for i, num in enumerate(top_3_numbers):
         with cols[i]:
-            st.metric(
-                label=f"Số {num:02d}", 
-                value=f"Score: {kalman_scores[num-1]:.3f}",
-                delta=f"ΔP: {delta_p[num-1]:.2f}",
-                delta_color="inverse"
-            )
+            score_val = kalman_scores[num-1]
+            delta_val = delta_p[num-1]
+            st.markdown(f"""
+                <div class="main-card">
+                    <div class="metric-text">GỢI Ý #{i+1}</div>
+                    <div class="number-highlight">{num:02d}</div>
+                    <div class="metric-text">Score: <b>{score_val:.3f}</b></div>
+                    <div class="metric-text">ΔP: <span style="color: #f43f5e;">{delta_val:.2f}</span></div>
+                </div>
+            """, unsafe_allow_html=True)
 
     st.warning("⚠️ **Kỷ luật Tau_crit = 2:** Cửa sổ vàng chỉ áp dụng cho **kỳ T+1 và T+2**. Tự động hủy lệnh nếu quá thời gian tới hạn.")
 
@@ -149,4 +160,4 @@ if len(history_draws) > 0:
         })
         st.dataframe(df_history, use_container_width=True)
 else:
-    st.info("Vui lòng nhập ít nhất một dòng kết quả kỳ quay vào ô bên trên để hệ thống tiến hành phân tích.")
+    st.info("Vui lòng nhập ít nhất một dòng kết quả kỳ quay để hệ thống tiến hành phân tích.")
