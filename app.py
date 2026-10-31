@@ -1,154 +1,152 @@
-import re
+import streamlit as st
 import numpy as np
 import pandas as pd
-import streamlit as st
 
-st.set_page_config(page_title="MDM-Swarm v1.0: Multi-Agent Research Core", layout="wide")
-
-class MultiAgentSwarmEngine:
-    def __init__(self, n_numbers=80):
-        self.D = n_numbers
-
-    def parse_data(self, raw_text: str, min_kies=3, max_kies=20):
-        cleaned_data = re.sub(r'(?:Kì|Kỳ)\s*\d+[:\s]*', '\n', raw_text.strip(), flags=re.IGNORECASE)
-        all_numbers = [int(n) for n in re.findall(r'\b\d{1,2}\b', cleaned_data) if 1 <= int(n) <= self.D]
-        total_kies = len(all_numbers) // 20
-
-        if total_kies < min_kies:
-            return None, total_kies
-
-        kies_to_use = min(total_kies, max_kies)
-        used_numbers = all_numbers[-kies_to_use * 20:]
-
-        matrix = np.zeros((kies_to_use, self.D), dtype=float)
-        for k in range(kies_to_use):
-            for num in used_numbers[k * 20 : (k + 1) * 20]:
-                matrix[k, num - 1] = 1.0
-
-        return matrix, kies_to_use
-
-    def agent_topologist(self, matrix):
-        """Agent 1: Phân tích hình học tô-pô và năng lượng biến đổi không gian."""
-        T, D = matrix.shape
-        if T < 2:
-            return np.zeros(D)
-        diffs = np.abs(np.diff(matrix, axis=0))
-        topo_scores = diffs.mean(axis=0) * (1.0 + matrix[-1])
-        return topo_scores
-
-    def agent_phase_shifter(self, matrix):
-        """Agent 2: Đo lường độ trễ pha và xung lượng suy giảm hàm mũ."""
-        T, D = matrix.shape
-        weights = np.exp(np.linspace(0, 2, T))
-        weights /= weights.sum()
-        weighted = matrix * weights[:, np.newaxis]
-        return weighted.sum(axis=0)
-
-    def agent_cluster_miner(self, matrix):
-        """Agent 3: Khai thác ma trận tương quan cặp và cụm bọc lót."""
-        T, D = matrix.shape
-        co_matrix = np.dot(matrix.T, matrix)
-        np.fill_diagonal(co_matrix, 0)
-        return co_matrix.sum(axis=1)
-
-    def run_swarm_consensus(self, matrix):
-        """Agent 4 (Arbiter): Tổng hợp ý kiến đa tác tử và bỏ phiếu đồng thuận."""
-        score_topo = self.agent_topologist(matrix)
-        score_phase = self.agent_phase_shifter(matrix)
-        score_cluster = self.agent_cluster_miner(matrix)
-
-        # Chuẩn hóa min-max các vector điểm số từ các agent
-        def norm(arr):
-            mx, mn = arr.max(), arr.min()
-            return (arr - mn) / (mx - mn + 1e-9)
-
-        consensus_scores = (0.33 * norm(score_topo)) + (0.34 * norm(score_phase)) + (0.33 * norm(score_cluster))
-
-        # Phân rã cấu trúc thành các phân thớ đầu số
-        structure_groups = {
-            f"Đầu {i} ({(i*10)+1:02d}-{(i+1)*10:02d})": list(range(i * 10, (i + 1) * 10))
-            for i in range(8)
-        }
-
-        selected_cores = []
-        structural_breakdown = []
-
-        for group_name, indices in structure_groups.items():
-            group_scores = {idx + 1: consensus_scores[idx] for idx in indices}
-            sorted_group = sorted(group_scores.items(), key=lambda x: x[1], reverse=True)
-            top_2_in_group = sorted_group[:2]
-            
-            for num, score in top_2_in_group:
-                selected_cores.append((num, score, group_name))
-            
-            structural_breakdown.append({
-                "Phân thớ cấu trúc": group_name,
-                "Top 2 số đồng thuận": f"{sorted_group[0][0]:02d}, {sorted_group[1][0]:02d}",
-                "Chỉ số đồng thuận Agent": round(float(np.mean([s for _, s in sorted_group[:2]])), 4)
-            })
-
-        selected_cores = sorted(selected_cores, key=lambda x: x[1], reverse=True)
-        final_top_5 = [item[0] for item in selected_cores[:5]]
-        swarm_index = float(np.mean(consensus_scores))
-
-        return {
-            "swarm_index": swarm_index,
-            "final_top_5": final_top_5,
-            "structural_breakdown": structural_breakdown,
-            "scores": consensus_scores
-        }
-
-# ==============================================================================
-# GIAO DIỆN STREAMLIT
-# ==============================================================================
-st.title("🌐 MDM-SWARM v1.0: MULTI-AGENT RESEARCH CORE")
-st.caption("Hệ thống Đa tác tử phân tán • Top-p Consensus • Giải mã phi tuyến tính")
-
-with st.sidebar:
-    st.header("🤖 Trạng Thái Swarm Agents")
-    st.markdown("- **Agent 1 (Topologist):** Active")
-    st.markdown("- **Agent 2 (Phase Shifter):** Active")
-    st.markdown("- **Agent 3 (Cluster Miner):** Active")
-    st.markdown("- **Agent 4 (Arbiter):** Active")
-    st.markdown("---")
-    target_order = st.slider("Cửa sổ phân tích của Swarm:", 3, 10, 5)
-
-raw_input = st.text_area(
-    f"Dán thủ công dữ liệu Keno (Tối thiểu {target_order} kỳ):",
-    placeholder="Ví dụ:\nKỳ 1: 06 11 13 18 21 22 25 31 43 44 45 46 53 54 55 64 65 68 76 77\nKỳ 2: ...",
-    height=200
+# =====================================================================
+# CẤU HÌNH TRANG STREAMLIT (TỐI ƯU GIAO DIỆN DI ĐỘNG)
+# =====================================================================
+st.set_page_config(
+    page_title="Keno Quantitative Engine",
+    page_icon="🎯",
+    layout="centered"
 )
 
-if raw_input.strip():
-    engine = MultiAgentSwarmEngine()
-    matrix, total_kies = engine.parse_data(raw_input, min_kies=target_order)
+st.markdown("""
+<style>
+    .stMetric {
+        background-color: #1f2937;
+        padding: 10px;
+        border-radius: 8px;
+        border: 1px solid #374151;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-    if matrix is not None:
-        res = engine.run_swarm_consensus(matrix)
-
-        st.success(f"🧬 Hệ thống 4 Agent đã hoàn tất quá trình hội tụ và bỏ phiếu trên {total_kies} kỳ!")
-        st.markdown("---")
-
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric(label="🌀 Chỉ Số Đồng Thuận Swarm", value=f"{res['swarm_index']:.4f}")
-        with col2:
-            st.metric(label="⚡ Trạng Thái Tác Tử", value="4 AGENTS SYNCHRONIZED")
-        with col3:
-            st.metric(label="🎯 Tập Giá Trị Lõi", value="TOP 5 SWARM CORE")
-
-        st.markdown("---")
-        st.subheader("🎯 TOP 5 CON SỐ ĐỒNG THUẬN TỪ HỆ THỐNG ĐA TÁC TỬ")
+# =====================================================================
+# LỚP MÔ HÌNH TOÁN HỌC (MODULE 1, 2, 3)
+# =====================================================================
+class KenoQuantitativeEngine:
+    """Động cơ định lượng Keno: EKF + Local Non-Ergodicity Scanning"""
+    def __init__(self, num_numbers=80, window_size=5):
+        self.num_numbers = num_numbers
+        self.window_size = window_size
         
-        core_str = "  •  ".join([f"**{n:02d}**" for n in res['final_top_5']])
-        st.markdown(f"<div style='text-align:center; padding:25px; background:#0E1117; border-radius:10px; border:2px solid #00F0FF; font-size:28px; color:#00F0FF;'>{core_str}</div>", unsafe_allow_html=True)
+        # Extended Kalman Filter Parameters
+        self.x = np.full(num_numbers, 0.25)
+        self.P = np.eye(num_numbers) * 0.1
+        self.Q = np.eye(num_numbers) * 0.01
+        self.R = np.eye(num_numbers) * 0.2
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.subheader("📊 CHI TIẾT PHÂN RÃ THEO PHÂN THỚ CẤU TRÚC ĐẦU SỐ")
-        df_struct = pd.DataFrame(res['structural_breakdown'])
-        st.table(df_struct)
+    def update_ekf(self, observation_vector):
+        x_pred = self.x
+        P_pred = self.P + self.Q
+        K = P_pred @ np.linalg.inv(P_pred + self.R)
+        y = observation_vector - x_pred
+        self.x = x_pred + K @ y
+        self.P = (np.eye(self.num_numbers) - K) @ P_pred
+        return self.x
 
-    else:
-        st.warning(f"Cần tối thiểu {target_order} kỳ dữ liệu để khởi động các Agent (Hệ thống ghi nhận được {total_kies} kỳ).")
+    def analyze_local_non_ergodicity(self, history_draws):
+        recent_window = history_draws[-self.window_size:]
+        matrix = np.zeros((len(recent_window), self.num_numbers))
+        
+        for idx, draw in enumerate(recent_window):
+            for num in draw:
+                if 1 <= num <= self.num_numbers:
+                    matrix[idx, int(num) - 1] = 1
+        
+        prob_window = np.mean(matrix, axis=0)
+        delta_p = prob_window - 0.25  # P_0 = 0.25
+        return delta_p
+
+# =====================================================================
+# GIAO DIỆN STREAMLIT & NHẬP LIỆU THỦ CÔNG
+# =====================================================================
+st.title("🎯 Keno Quantitative Engine")
+st.caption("Nhập dữ liệu thủ công và phân tích kẽ hở xác suất ngắn hạn")
+
+st.divider()
+
+# Khu vực nhập liệu thủ công
+st.subheader("📥 Nhập dữ liệu kỳ quay thủ công")
+st.markdown("Mỗi dòng tương ứng với kết quả 1 kỳ quay (các số cách nhau bằng dấu phẩy hoặc khoảng trắng, ví dụ: `1, 5, 12, ...`)")
+
+# Mẫu mặc định để người dùng dễ hình dung định dạng nhập
+default_input = """1, 3, 5, 12, 15, 22, 28, 30, 35, 40, 45, 50, 55, 60, 65, 70, 72, 75, 78, 80
+2, 4, 6, 11, 16, 21, 29, 31, 36, 41, 46, 51, 56, 61, 66, 71, 73, 76, 79, 70
+3, 7, 9, 14, 18, 23, 27, 32, 37, 42, 47, 52, 57, 62, 67, 72, 74, 77, 68, 69
+4, 8, 10, 13, 17, 24, 26, 33, 38, 43, 48, 53, 58, 63, 68, 73, 75, 78, 64, 65"""
+
+raw_text_input = st.text_area("Danh sách các kỳ quay (Dán dữ liệu của bạn vào đây):", value=default_input, height=160)
+
+# Xử lý chuỗi văn bản do người dùng nhập thủ công thành ma trận số nguyên
+history_draws = []
+for line in raw_text_input.strip().split("\n"):
+    if line.strip():
+        try:
+            numbers = [int(n.strip()) for n in line.replace(",", " ").split() if n.strip()]
+            if numbers:
+                history_draws.append(numbers)
+        except ValueError:
+            continue
+
+# Thanh trượt chọn cửa sổ ngắn hạn W
+max_w = max(len(history_draws), 2)
+window_size = st.slider("Cửa sổ trượt ngắn hạn W (kỳ quay):", min_value=2, max_value=max_w, value=min(len(history_draws), 5))
+
+if len(history_draws) > 0:
+    # Khởi tạo động cơ định lượng với dữ liệu thực tế từ người dùng
+    engine = KenoQuantitativeEngine(num_numbers=80, window_size=window_size)
+
+    # Chạy EKF qua từng kỳ quay
+    for draw in history_draws:
+        binary_vector = np.zeros(80)
+        for num in draw:
+            if 1 <= num <= 80:
+                binary_vector[num - 1] = 1
+        kalman_scores = engine.update_ekf(binary_vector)
+
+    # Phân tích độ lệch cục bộ Delta P
+    delta_p = engine.analyze_local_non_ergodicity(history_draws)
+
+    # Lọc Top Cold Attractors (Vùng nén áp suất cao)
+    cold_indices = np.argsort(delta_p)[:min(6, len(delta_p))]
+    top_numbers = [idx + 1 for idx in cold_indices]
+
+    st.divider()
+    st.subheader("📍 Bộ số ưu tiên ngắn hạn (Cold Attractors)")
+    
+    col1, col2, col3 = st.columns(3)
+    cols = [col1, col2, col3, col1, col2, col3]
+
+    for i, num in enumerate(top_numbers):
+        with cols[i]:
+            st.metric(
+                label=f"Số {num:02d}", 
+                value=f"Score: {kalman_scores[num-1]:.3f}",
+                delta=f"ΔP: {delta_p[num-1]:.2f}",
+                delta_color="inverse"
+            )
+
+    st.warning("⚠️ **Kỷ luật Tau_crit = 2:** Cửa sổ vàng chỉ áp dụng cho **kỳ T+1 và T+2**. Tự động hủy lệnh nếu quá thời gian tới hạn.")
+
+    st.divider()
+    tab1, tab2 = st.tabs(["📊 Biểu đồ Phân bổ ΔP", "📜 Dữ liệu đã nhập"])
+
+    with tab1:
+        st.write("#### Biểu đồ lệch pha cục bộ so với P_0 (0.25)")
+        chart_data = pd.DataFrame({
+            "Số Keno": [f"{i:02d}" for i in range(1, 81)],
+            "Độ lệch ΔP": delta_p
+        })
+        st.bar_chart(chart_data.set_index("Số Keno"))
+
+    with tab2:
+        st.write("#### Chi tiết các kỳ quay đã nhập thủ công")
+        df_history = pd.DataFrame({
+            f"Kỳ quay {i+1}": sorted(draw) 
+            for i, draw in enumerate(history_draws)
+        })
+        st.dataframe(df_history, use_container_width=True)
 else:
-    st.info("Hãy dán dữ liệu vào khung trên để đánh thức hệ thống các Agent nghiên cứu chuyên sâu!")
+    st.info("Vui lòng nhập ít nhất một dòng kết quả kỳ quay vào ô bên trên để hệ thống tiến hành phân tích.")
