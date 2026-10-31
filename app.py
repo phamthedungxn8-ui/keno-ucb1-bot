@@ -77,7 +77,7 @@ st.caption("Mô hình định lượng khai thác kẽ hở ngắn hạn (Short-
 
 st.divider()
 
-# Nhập liệu thủ công (Mặc định 3 kỳ gần nhất đúng theo yêu cầu)
+# Nhập liệu thủ công
 st.subheader("📥 Nhập dữ liệu kỳ quay thủ công")
 st.markdown("Mỗi dòng là một kỳ quay (các số cách nhau bằng dấu phẩy hoặc khoảng trắng):")
 
@@ -98,7 +98,6 @@ for line in raw_text_input.strip().split("\n"):
         except ValueError:
             continue
 
-# Cố định hoặc cho phép chọn cửa sổ trượt W = 3 (hoặc tùy biến theo số kỳ nhập)
 max_w = max(len(history_draws), 2)
 window_size = st.slider("Cửa sổ trượt ngắn hạn W (kỳ quay):", min_value=2, max_value=max_w, value=min(len(history_draws), 3))
 
@@ -115,14 +114,21 @@ if len(history_draws) > 0:
 
     delta_p = engine.analyze_local_non_ergodicity(history_draws)
 
-    # Lọc lấy ĐÚNG 3 BỘ SỐ / 3 TÍN HIỆU TỐT NHẤT (Cold Attractors tiềm năng nhất)
-    cold_indices = np.argsort(delta_p)[:3]
+    # =====================================================================
+    # CẢI TIẾN: THÊM CƠ CHẾ XÁO TRỘN NGẪU NHIÊN KHI CÁC SỐ BỊ TRÙNG MỨC ΔP
+    # =====================================================================
+    # Tạo một chút nhiễu ngẫu nhiên cực nhỏ để phá vỡ hiện tượng trùng giá trị tuyệt đối
+    np.random.seed(None) # Đảm bảo tính ngẫu nhiên thay đổi mỗi lần bấm
+    random_noise = np.random.uniform(-0.0001, 0.0001, size=len(delta_p))
+    adjusted_metric = delta_p + random_noise
+
+    # Lọc lấy ĐÚNG 3 BỘ SỐ / 3 TÍN HIỆU TỐT NHẤT sau khi đã xử lý chống trùng lặp
+    cold_indices = np.argsort(adjusted_metric)[:3]
     top_3_numbers = [idx + 1 for idx in cold_indices]
 
     st.divider()
     st.subheader("🔥 Top 3 Bộ số Khai thác Tối ưu (Kỳ T+1 & T+2)")
     
-    # Hiển thị trực quan 3 bộ số gợi ý chính dạng thẻ lớn
     col1, col2, col3 = st.columns(3)
     cols = [col1, col2, col3]
 
