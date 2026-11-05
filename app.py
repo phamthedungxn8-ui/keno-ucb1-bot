@@ -1,169 +1,122 @@
-import streamlit as st
 import numpy as np
 import pandas as pd
+from scipy.stats import wasserstein_distance
+from scipy.fft import fft
 
-# =====================================================================
-# CẤU HÌNH GIAO DIỆN TỐI ƯU CHO MOBILE
-# =====================================================================
-st.set_page_config(
-    page_title="Keno Quantitative Engine",
-    page_icon="🎯",
-    layout="centered"
-)
+class AnonymousSpatialEngine:
+    def __init__(self, n_positions=80, n_drawn=20):
+        self.D = n_positions
+        self.K = n_drawn
 
-st.markdown("""
-<style>
-    .main-card {
-        background-color: #1e293b;
-        padding: 16px;
-        border-radius: 12px;
-        border: 1px solid #334155;
-        text-align: center;
-        margin-bottom: 10px;
-    }
-    .number-highlight {
-        font-size: 32px;
-        font-weight: bold;
-        color: #38bdf8;
-    }
-    .metric-text {
-        font-size: 13px;
-        color: #94a3b8;
-    }
-</style>
-""", unsafe_allow_html=True)
+    def vector_to_positions(self, binary_vector: np.ndarray) -> np.ndarray:
+        """Trích xuất các chỉ số vị trí (1-80) mang giá trị 1."""
+        return np.where(binary_vector == 1)[0] + 1
 
-# =====================================================================
-# LỚP MÔ HÌNH TOÁN HỌC (EKF & LOCAL NON-ERGODICITY)
-# =====================================================================
-class KenoQuantitativeEngine:
-    def __init__(self, num_numbers=80, window_size=3):
-        self.num_numbers = num_numbers
-        self.window_size = window_size
-        
-        # Extended Kalman Filter Parameters
-        self.x = np.full(num_numbers, 0.25)
-        self.P = np.eye(num_numbers) * 0.1
-        self.Q = np.eye(num_numbers) * 0.01
-        self.R = np.eye(num_numbers) * 0.2
+    def compute_wasserstein_series(self, matrix: np.ndarray) -> list:
+        """
+        1. TÍNH KHOẢNG CÁCH WASSERSTEIN (W1) GIỮA CÁC KỲ LIÊN TIẾP
+        Đo lường 'công' tối thiểu để biến đổi hình thái tập hợp kỳ t-1 sang kỳ t.
+        """
+        T, D = matrix.shape
+        w1_scores = []
+        for t in range(1, T):
+            pos_prev = self.vector_to_positions(matrix[t-1])
+            pos_curr = self.vector_to_positions(matrix[t])
+            # Tính khoảng cách Wasserstein giữa 2 phân bố vị trí
+            dist = wasserstein_distance(pos_prev, pos_curr)
+            w1_scores.append(dist)
+        return w1_scores
 
-    def update_ekf(self, observation_vector):
-        x_pred = self.x
-        P_pred = self.P + self.Q
-        K = P_pred @ np.linalg.inv(P_pred + self.R)
-        y = observation_vector - x_pred
-        self.x = x_pred + K @ y
-        self.P = (np.eye(self.num_numbers) - K) @ P_pred
-        return self.x
+    def compute_von_neumann_entropy(self, matrix: np.ndarray) -> np.ndarray:
+        """
+        2. TÍNH ENTROPY VƯỚNG VÍU VON NEUMANN
+        Chia 80 vị trí thành 2 phân vùng A (1-40) và B (41-80) để đo độ lệch nén năng lượng.
+        """
+        T, D = matrix.shape
+        half = D // 2
+        entropies = []
 
-    def analyze_local_non_ergodicity(self, history_draws):
-        recent_window = history_draws[-self.window_size:]
-        matrix = np.zeros((len(recent_window), self.num_numbers))
-        
-        for idx, draw in enumerate(recent_window):
-            for num in draw:
-                if 1 <= num <= self.num_numbers:
-                    matrix[idx, int(num) - 1] = 1
-        
-        prob_window = np.mean(matrix, axis=0)
-        delta_p = prob_window - 0.25  # P_0 lý thuyết = 0.25
-        return delta_p
+        for t in range(T):
+            vec = matrix[t]
+            prob_A = vec[:half].sum() / self.K
+            prob_B = vec[half:].sum() / self.K
 
-# =====================================================================
-# GIAO DIỆN CHÍNH
-# =====================================================================
-st.title("🎯 Keno Signal Engine")
-st.caption("Mô hình định lượng khai thác kẽ hở ngắn hạn (Short-term Non-ergodicity)")
+            # Tạo ma trận mật độ rút gọn 2x2 cho phân vùng
+            probs = np.array([prob_A, prob_B])
+            probs = probs[probs > 0] # Lọc các giá trị bằng 0 để tránh lỗi log
+            
+            # Tính Von Neumann Entropy: S = - sum(p * log2(p))
+            S = -np.sum(probs * np.log2(probs)) if len(probs) > 0 else 0.0
+            entropies.append(S)
 
-st.divider()
+        return np.array(entropies)
 
-# Nhập liệu thủ công
-st.subheader("📥 Nhập dữ liệu kỳ quay thủ công")
-st.markdown("Mỗi dòng là một kỳ quay (các số cách nhau bằng dấu phẩy hoặc khoảng trắng):")
+    def compute_spatial_fourier_spectrum(self, matrix: np.ndarray) -> np.ndarray:
+        """
+        3. THUẬT TOÁN BIẾN ĐỔI FOURIER KHÔNG GIANG (DFT)
+        Quét các sóng hài tần số vị trí trong lồng quay.
+        """
+        T, D = matrix.shape
+        # Tính biến đổi Fourier trên từng kỳ và lấy trung bình biên độ công suất
+        fft_amplitudes = np.abs(fft(matrix, axis=1))
+        power_spectrum = np.mean(fft_amplitudes**2, axis=0)
+        return power_spectrum[:D // 2] # Trả về nửa phổ dương (Do tính đối xứng)
 
-default_input = """37, 51, 35, 56, 42, 57, 57, 59, 58, 58, 64, 59, 65, 66, 62, 66, 68, 68, 67, 72
-38, 53, 41, 56, 42, 57, 57, 58, 58, 59, 64, 59, 65, 66, 62, 66, 68, 68, 67, 72
-53, 56, 42, 57, 57, 58, 58, 59, 64, 59, 65, 66, 62, 66, 68, 68, 67, 72, 74, 77"""
+    def analyze_swarm_signals(self, matrix: np.ndarray):
+        """
+        ĐIỀU PHỐI VÀ TỔNG HỢP TÍN HIỆU TỪ 3 TÁC TỬ
+        """
+        T, D = matrix.shape
+        w1_series = self.compute_wasserstein_series(matrix)
+        entropy_series = self.compute_von_neumann_entropy(matrix)
+        fourier_spectrum = self.compute_spatial_fourier_spectrum(matrix)
 
-raw_text_input = st.text_area("Danh sách các kỳ quay:", value=default_input, height=130)
+        # 1. Tín hiệu Wasserstein: Phát hiện thời điểm nén/giãn dải
+        latest_w1 = w1_series[-1] if len(w1_series) > 0 else 0
+        w1_trend = "COMPRESSING (Co cụm dải)" if latest_w1 < np.mean(w1_series) else "EXPANDING (Bùng nổ dải)"
 
-# Xử lý dữ liệu đầu vào
-history_draws = []
-for line in raw_text_input.strip().split("\n"):
-    if line.strip():
-        try:
-            numbers = [int(n.strip()) for n in line.replace(",", " ").split() if n.strip()]
-            if numbers:
-                history_draws.append(numbers)
-        except ValueError:
-            continue
+        # 2. Tín hiệu Entropy: Xác định xem năng lượng có bị lệch phân vùng
+        latest_entropy = entropy_series[-1]
+        entropy_status = "BALANCED (Entropy cực đại)" if latest_entropy > 0.95 else "LOCALIZED (Nén lệch pha)"
 
-max_w = max(len(history_draws), 2)
-window_size = st.slider("Cửa sổ trượt ngắn hạn W (kỳ quay):", min_value=2, max_value=max_w, value=min(len(history_draws), 3))
+        # 3. Tín hiệu Fourier: Tìm tần số sóng hài thống trị (Dominant Spatial Frequency)
+        # Bỏ qua k=0 (thành phần DC)
+        dominant_k = np.argmax(fourier_spectrum[1:]) + 1
+        harmonic_period = round(D / dominant_k, 2)
 
-if len(history_draws) > 0:
-    # Khởi tạo và chạy thuật toán
-    engine = KenoQuantitativeEngine(num_numbers=80, window_size=window_size)
+        return {
+            "w1_series": w1_series,
+            "latest_w1": round(latest_w1, 4),
+            "w1_trend": w1_trend,
+            "latest_entropy": round(latest_entropy, 4),
+            "entropy_status": entropy_status,
+            "dominant_spatial_k": dominant_k,
+            "harmonic_period_positions": harmonic_period,
+            "fourier_spectrum": fourier_spectrum
+        }
 
-    for draw in history_draws:
-        binary_vector = np.zeros(80)
-        for num in draw:
-            if 1 <= num <= 80:
-                binary_vector[num - 1] = 1
-        kalman_scores = engine.update_ekf(binary_vector)
-
-    delta_p = engine.analyze_local_non_ergodicity(history_draws)
-
-    # =====================================================================
-    # CẢI TIẾN: THÊM CƠ CHẾ XÁO TRỘN NGẪU NHIÊN KHI CÁC SỐ BỊ TRÙNG MỨC ΔP
-    # =====================================================================
-    # Tạo một chút nhiễu ngẫu nhiên cực nhỏ để phá vỡ hiện tượng trùng giá trị tuyệt đối
-    np.random.seed(None) # Đảm bảo tính ngẫu nhiên thay đổi mỗi lần bấm
-    random_noise = np.random.uniform(-0.0001, 0.0001, size=len(delta_p))
-    adjusted_metric = delta_p + random_noise
-
-    # Lọc lấy ĐÚNG 3 BỘ SỐ / 3 TÍN HIỆU TỐT NHẤT sau khi đã xử lý chống trùng lặp
-    cold_indices = np.argsort(adjusted_metric)[:3]
-    top_3_numbers = [idx + 1 for idx in cold_indices]
-
-    st.divider()
-    st.subheader("🔥 Top 3 Bộ số Khai thác Tối ưu (Kỳ T+1 & T+2)")
+# ==============================================================================
+# KHUNG KIỂM ĐỊNH GIẢ LẬP VỚI DỮ LIỆU TẬP HỢP
+# ==============================================================================
+if __name__ == "__main__":
+    # Giả lập 5 kỳ quay (mỗi kỳ chọn 20 quả bóng ngẫu nhiên từ 80 vị trí)
+    np.random.seed(42)
+    T_test = 5
+    sample_matrix = np.zeros((T_test, 80))
     
-    col1, col2, col3 = st.columns(3)
-    cols = [col1, col2, col3]
+    for t in range(T_test):
+        drawn_indices = np.random.choice(80, 20, replace=False)
+        sample_matrix[t, drawn_indices] = 1.0
 
-    for i, num in enumerate(top_3_numbers):
-        with cols[i]:
-            score_val = kalman_scores[num-1]
-            delta_val = delta_p[num-1]
-            st.markdown(f"""
-                <div class="main-card">
-                    <div class="metric-text">GỢI Ý #{i+1}</div>
-                    <div class="number-highlight">{num:02d}</div>
-                    <div class="metric-text">Score: <b>{score_val:.3f}</b></div>
-                    <div class="metric-text">ΔP: <span style="color: #f43f5e;">{delta_val:.2f}</span></div>
-                </div>
-            """, unsafe_allow_html=True)
+    # Khởi chạy cỗ máy phân tích không gian
+    engine = AnonymousSpatialEngine(n_positions=80, n_drawn=20)
+    results = engine.analyze_swarm_signals(sample_matrix)
 
-    st.warning("⚠️ **Kỷ luật Tau_crit = 2:** Cửa sổ vàng chỉ áp dụng cho **kỳ T+1 và T+2**. Tự động hủy lệnh nếu quá thời gian tới hạn.")
-
-    st.divider()
-    tab1, tab2 = st.tabs(["📊 Biểu đồ Phân bổ ΔP", "📜 Dữ liệu đã nhập"])
-
-    with tab1:
-        st.write("#### Biểu đồ lệch pha cục bộ so với P_0 (0.25)")
-        chart_data = pd.DataFrame({
-            "Số Keno": [f"{i:02d}" for i in range(1, 81)],
-            "Độ lệch ΔP": delta_p
-        })
-        st.bar_chart(chart_data.set_index("Số Keno"))
-
-    with tab2:
-        st.write("#### Chi tiết các kỳ quay đã nhập thủ công")
-        df_history = pd.DataFrame({
-            f"Kỳ quay {i+1}": sorted(draw) 
-            for i, draw in enumerate(history_draws)
-        })
-        st.dataframe(df_history, use_container_width=True)
-else:
-    st.info("Vui lòng nhập ít nhất một dòng kết quả kỳ quay để hệ thống tiến hành phân tích.")
+    print("==========================================================")
+    print("🌐 KẾT QUẢ PHÂN TÍCH TÔ-PÔ VÀ KHÔNG GIANG TRẠNG THÁI (v115.0)")
+    print("==========================================================")
+    print(f"📊 Khoảng cách Wasserstein (W1) kỳ mới nhất : {results['latest_w1']} -> [{results['w1_trend']}]")
+    print(f"🌀 Entropy Von Neumann (Phân vùng A/B)       : {results['latest_entropy']} -> [{results['entropy_status']}]")
+    print(f"📻 Tần số sóng hài không gian ưu thế (k)      : Bậc k = {results['dominant_spatial_k']}")
+    print(f"📏 Chu kỳ khoảng cách vị trí rơi ưu thế       : Cách nhau ~{results['harmonic_period_positions']} vị trí")
+    print("==========================================================")
