@@ -1,122 +1,144 @@
+import re
 import numpy as np
 import pandas as pd
-from scipy.stats import wasserstein_distance
-from scipy.fft import fft
+import streamlit as st
 
-class AnonymousSpatialEngine:
+st.set_page_config(page_title="MDM-IDS v115.0: Spatial Topological Core", layout="wide")
+
+class PureNumPySpatialEngine:
     def __init__(self, n_positions=80, n_drawn=20):
         self.D = n_positions
         self.K = n_drawn
 
-    def vector_to_positions(self, binary_vector: np.ndarray) -> np.ndarray:
-        """Trích xuất các chỉ số vị trí (1-80) mang giá trị 1."""
-        return np.where(binary_vector == 1)[0] + 1
+    def parse_data(self, raw_text: str, min_kies=3, max_kies=20):
+        cleaned_data = re.sub(r'(?:Kì|Kỳ)\s*\d+[:\s]*', '\n', raw_text.strip(), flags=re.IGNORECASE)
+        all_numbers = [int(n) for n in re.findall(r'\b\d{1,2}\b', cleaned_data) if 1 <= int(n) <= self.D]
+        total_kies = len(all_numbers) // 20
 
-    def compute_wasserstein_series(self, matrix: np.ndarray) -> list:
-        """
-        1. TÍNH KHOẢNG CÁCH WASSERSTEIN (W1) GIỮA CÁC KỲ LIÊN TIẾP
-        Đo lường 'công' tối thiểu để biến đổi hình thái tập hợp kỳ t-1 sang kỳ t.
-        """
+        if total_kies < min_kies:
+            return None, total_kies
+
+        kies_to_use = min(total_kies, max_kies)
+        used_numbers = all_numbers[-kies_to_use * 20:]
+
+        matrix = np.zeros((kies_to_use, self.D), dtype=float)
+        for k in range(kies_to_use):
+            for num in used_numbers[k * 20 : (k + 1) * 20]:
+                matrix[k, num - 1] = 1.0
+
+        return matrix, kies_to_use
+
+    def custom_wasserstein_1d(self, u_vec: np.ndarray, v_vec: np.ndarray) -> float:
+        """Hàm tính khoảng cách Wasserstein W1 thuần NumPy không phụ thuộc scipy."""
+        u_cdf = np.cumsum(u_vec) / (u_vec.sum() + 1e-9)
+        v_cdf = np.cumsum(v_vec) / (v_vec.sum() + 1e-9)
+        return float(np.sum(np.abs(u_cdf - v_cdf)))
+
+    def analyze_spatial_signals(self, matrix: np.ndarray):
         T, D = matrix.shape
-        w1_scores = []
+        
+        # 1. Tính chuỗi khoảng cách Wasserstein W1 giữa các kỳ
+        w1_series = []
         for t in range(1, T):
-            pos_prev = self.vector_to_positions(matrix[t-1])
-            pos_curr = self.vector_to_positions(matrix[t])
-            # Tính khoảng cách Wasserstein giữa 2 phân bố vị trí
-            dist = wasserstein_distance(pos_prev, pos_curr)
-            w1_scores.append(dist)
-        return w1_scores
+            w1_val = self.custom_wasserstein_1d(matrix[t-1], matrix[t])
+            w1_series.append(w1_val)
+        
+        latest_w1 = w1_series[-1] if len(w1_series) > 0 else 0.0
+        w1_trend = "COMPRESSING (Co cụm dải)" if latest_w1 < np.mean(w1_series if len(w1_series) > 0 else [0]) else "EXPANDING (Bùng nổ dải)"
 
-    def compute_von_neumann_entropy(self, matrix: np.ndarray) -> np.ndarray:
-        """
-        2. TÍNH ENTROPY VƯỚNG VÍU VON NEUMANN
-        Chia 80 vị trí thành 2 phân vùng A (1-40) và B (41-80) để đo độ lệch nén năng lượng.
-        """
-        T, D = matrix.shape
+        # 2. Von Neumann Entropy (Phân vùng Nửa A / Nửa B)
         half = D // 2
         entropies = []
-
         for t in range(T):
             vec = matrix[t]
-            prob_A = vec[:half].sum() / self.K
-            prob_B = vec[half:].sum() / self.K
-
-            # Tạo ma trận mật độ rút gọn 2x2 cho phân vùng
-            probs = np.array([prob_A, prob_B])
-            probs = probs[probs > 0] # Lọc các giá trị bằng 0 để tránh lỗi log
-            
-            # Tính Von Neumann Entropy: S = - sum(p * log2(p))
+            pA = vec[:half].sum() / self.K
+            pB = vec[half:].sum() / self.K
+            probs = np.array([pA, pB])
+            probs = probs[probs > 0]
             S = -np.sum(probs * np.log2(probs)) if len(probs) > 0 else 0.0
             entropies.append(S)
 
-        return np.array(entropies)
-
-    def compute_spatial_fourier_spectrum(self, matrix: np.ndarray) -> np.ndarray:
-        """
-        3. THUẬT TOÁN BIẾN ĐỔI FOURIER KHÔNG GIANG (DFT)
-        Quét các sóng hài tần số vị trí trong lồng quay.
-        """
-        T, D = matrix.shape
-        # Tính biến đổi Fourier trên từng kỳ và lấy trung bình biên độ công suất
-        fft_amplitudes = np.abs(fft(matrix, axis=1))
-        power_spectrum = np.mean(fft_amplitudes**2, axis=0)
-        return power_spectrum[:D // 2] # Trả về nửa phổ dương (Do tính đối xứng)
-
-    def analyze_swarm_signals(self, matrix: np.ndarray):
-        """
-        ĐIỀU PHỐI VÀ TỔNG HỢP TÍN HIỆU TỪ 3 TÁC TỬ
-        """
-        T, D = matrix.shape
-        w1_series = self.compute_wasserstein_series(matrix)
-        entropy_series = self.compute_von_neumann_entropy(matrix)
-        fourier_spectrum = self.compute_spatial_fourier_spectrum(matrix)
-
-        # 1. Tín hiệu Wasserstein: Phát hiện thời điểm nén/giãn dải
-        latest_w1 = w1_series[-1] if len(w1_series) > 0 else 0
-        w1_trend = "COMPRESSING (Co cụm dải)" if latest_w1 < np.mean(w1_series) else "EXPANDING (Bùng nổ dải)"
-
-        # 2. Tín hiệu Entropy: Xác định xem năng lượng có bị lệch phân vùng
-        latest_entropy = entropy_series[-1]
+        latest_entropy = entropies[-1]
         entropy_status = "BALANCED (Entropy cực đại)" if latest_entropy > 0.95 else "LOCALIZED (Nén lệch pha)"
 
-        # 3. Tín hiệu Fourier: Tìm tần số sóng hài thống trị (Dominant Spatial Frequency)
-        # Bỏ qua k=0 (thành phần DC)
-        dominant_k = np.argmax(fourier_spectrum[1:]) + 1
+        # 3. Phân tích Phổ Fourier Không gian (Spatial Fourier Spectrum via NumPy)
+        fft_amps = np.abs(np.fft.fft(matrix, axis=1))
+        power_spectrum = np.mean(fft_amps**2, axis=0)[:D // 2]
+        dominant_k = int(np.argmax(power_spectrum[1:]) + 1)
         harmonic_period = round(D / dominant_k, 2)
 
+        # 4. Phân rã cấu trúc Top 5 số có điểm cộng hưởng không gian cao nhất
+        spatial_scores = np.mean(matrix[-min(3, T):], axis=0) * (1.0 + np.std(matrix, axis=0))
+        top_5_indices = np.argsort(spatial_scores)[::-1][:5]
+        final_top_5 = [int(idx + 1) for idx in top_5_indices]
+
+        # Phân rã 8 phân thớ
+        structural_breakdown = []
+        for i in range(8):
+            indices = list(range(i * 10, (i + 1) * 10))
+            group_scores = {idx + 1: spatial_scores[idx] for idx in indices}
+            sorted_g = sorted(group_scores.items(), key=lambda x: x[1], reverse=True)
+            structural_breakdown.append({
+                "Phân thớ cấu trúc": f"Đầu {i} ({(i*10)+1:02d}-{(i+1)*10:02d})",
+                "Top 2 số Không gian": f"{sorted_g[0][0]:02d}, {sorted_g[1][0]:02d}",
+                "Xung lượng Tô-pô": round(float(np.mean([s for _, s in sorted_g[:2]])), 4)
+            })
+
         return {
-            "w1_series": w1_series,
             "latest_w1": round(latest_w1, 4),
             "w1_trend": w1_trend,
             "latest_entropy": round(latest_entropy, 4),
             "entropy_status": entropy_status,
-            "dominant_spatial_k": dominant_k,
-            "harmonic_period_positions": harmonic_period,
-            "fourier_spectrum": fourier_spectrum
+            "dominant_k": dominant_k,
+            "harmonic_period": harmonic_period,
+            "final_top_5": final_top_5,
+            "structural_breakdown": structural_breakdown
         }
 
 # ==============================================================================
-# KHUNG KIỂM ĐỊNH GIẢ LẬP VỚI DỮ LIỆU TẬP HỢP
+# GIAO DIỆN STREAMLIT
 # ==============================================================================
-if __name__ == "__main__":
-    # Giả lập 5 kỳ quay (mỗi kỳ chọn 20 quả bóng ngẫu nhiên từ 80 vị trí)
-    np.random.seed(42)
-    T_test = 5
-    sample_matrix = np.zeros((T_test, 80))
-    
-    for t in range(T_test):
-        drawn_indices = np.random.choice(80, 20, replace=False)
-        sample_matrix[t, drawn_indices] = 1.0
+st.title("🌐 MDM-IDS v115.0: SPATIAL TOPOLOGICAL ENGINE")
+st.caption("Khoảng cách Wasserstein W1 • Von Neumann Entropy • Spatial Fourier Spectrum")
 
-    # Khởi chạy cỗ máy phân tích không gian
-    engine = AnonymousSpatialEngine(n_positions=80, n_drawn=20)
-    results = engine.analyze_swarm_signals(sample_matrix)
+with st.sidebar:
+    st.header("⚙️ Cấu Hình Không Gian")
+    target_order = st.slider("Cửa sổ kỳ phân tích:", 3, 10, 4)
 
-    print("==========================================================")
-    print("🌐 KẾT QUẢ PHÂN TÍCH TÔ-PÔ VÀ KHÔNG GIANG TRẠNG THÁI (v115.0)")
-    print("==========================================================")
-    print(f"📊 Khoảng cách Wasserstein (W1) kỳ mới nhất : {results['latest_w1']} -> [{results['w1_trend']}]")
-    print(f"🌀 Entropy Von Neumann (Phân vùng A/B)       : {results['latest_entropy']} -> [{results['entropy_status']}]")
-    print(f"📻 Tần số sóng hài không gian ưu thế (k)      : Bậc k = {results['dominant_spatial_k']}")
-    print(f"📏 Chu kỳ khoảng cách vị trí rơi ưu thế       : Cách nhau ~{results['harmonic_period_positions']} vị trí")
-    print("==========================================================")
+raw_input = st.text_area(
+    f"Dán thủ công dữ liệu Keno (Chỉ cần từ {target_order} kỳ):",
+    placeholder="Ví dụ:\nKỳ 1: 06 11 13 18 21 22 25 31 43 44 45 46 53 54 55 64 65 68 76 77\nKỳ 2: ...",
+    height=200
+)
+
+if raw_input.strip():
+    engine = PureNumPySpatialEngine()
+    matrix, total_kies = engine.parse_data(raw_input, min_kies=target_order)
+
+    if matrix is not None:
+        res = engine.analyze_spatial_signals(matrix)
+
+        st.success(f"⚛️ Đã phân tích thành công Tô-pô Không gian trên {total_kies} kỳ!")
+        st.markdown("---")
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric(label="📊 Wasserstein W1 (Độ biến dạng)", value=res['latest_w1'], delta=res['w1_trend'])
+        with col2:
+            st.metric(label="🌀 Von Neumann Entropy", value=res['latest_entropy'], delta=res['entropy_status'])
+        with col3:
+            st.metric(label="📻 Tần số Sóng hài k", value=f"Bậc k={res['dominant_k']}", delta=f"Chu kỳ ~{res['harmonic_period']} số")
+
+        st.markdown("---")
+        st.subheader("🎯 TOP 5 CON SỐ TÔ-PÔ TỐI ƯU")
+        core_str = "  •  ".join([f"**{n:02d}**" for n in res['final_top_5']])
+        st.markdown(f"<div style='text-align:center; padding:25px; background:#0E1117; border-radius:10px; border:2px solid #00F0FF; font-size:28px; color:#00F0FF;'>{core_str}</div>", unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.subheader("📊 PHÂN RÃ XUNG LƯỢNG TÔ-PÔ THEO PHÂN THỚ")
+        df_struct = pd.DataFrame(res['structural_breakdown'])
+        st.table(df_struct)
+    else:
+        st.warning(f"Cần tối thiểu {target_order} kỳ dữ liệu.")
+else:
+    st.info("Dán dữ liệu từ 3-4 kỳ Keno để quét trường không gian Tô-pô!")
